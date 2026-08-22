@@ -7,11 +7,6 @@ sandbox profile, and a user-scoped PF firewall anchor. Code run inside a
 box cannot read host credentials, cannot reach the network except where
 explicitly allowed, and cannot write outside the project directory.
 
-## Status
-
-Early. Identity, execution, and network model are implemented; not yet
-verified on real hardware. See [CONTRIBUTING.md](./CONTRIBUTING.md)
-
 ## Configuration
 
 Two separate files, not one:
