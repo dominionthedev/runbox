@@ -95,13 +95,19 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     while i < args.len() {
         match args[i].as_str() {
             "--seatbelt-profile" => {
-                let path = args.get(i + 1).ok_or("--seatbelt-profile requires a path argument")?;
+                let path = args
+                    .get(i + 1)
+                    .ok_or("--seatbelt-profile requires a path argument")?;
                 seatbelt_profile = Some(path.clone());
                 i += 2;
             }
             "--env" => {
-                let pair = args.get(i + 1).ok_or("--env requires a KEY=VALUE argument")?;
-                let (key, value) = pair.split_once('=').ok_or("--env argument must be KEY=VALUE")?;
+                let pair = args
+                    .get(i + 1)
+                    .ok_or("--env requires a KEY=VALUE argument")?;
+                let (key, value) = pair
+                    .split_once('=')
+                    .ok_or("--env argument must be KEY=VALUE")?;
                 if key.is_empty() {
                     return Err("--env key cannot be empty");
                 }
@@ -119,7 +125,13 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     let binary_path = args.get(i).ok_or("missing target binary path")?.clone();
     let binary_args = args[i..].to_vec();
 
-    Ok(ParsedArgs { account_name, seatbelt_profile, env_pairs, binary_path, binary_args })
+    Ok(ParsedArgs {
+        account_name,
+        seatbelt_profile,
+        env_pairs,
+        binary_path,
+        binary_args,
+    })
 }
 
 /// Resolves this (already-dropped-privilege) process's real per-account
@@ -148,15 +160,19 @@ fn resolve_real_tmpdir() -> Result<String, String> {
 
 fn apply_sandbox(profile_path: &str, real_tmpdir: &str) -> Result<(), String> {
     if !profile_path.starts_with(PROFILES_DIR) {
-        return Err(format!("refusing profile outside {PROFILES_DIR}: {profile_path}"));
+        return Err(format!(
+            "refusing profile outside {PROFILES_DIR}: {profile_path}"
+        ));
     }
 
     let profile_text = std::fs::read_to_string(profile_path)
         .map_err(|e| format!("reading {profile_path}: {e}"))?;
 
-    let c_profile = CString::new(profile_text).map_err(|_| "profile contains interior NUL".to_string())?;
+    let c_profile =
+        CString::new(profile_text).map_err(|_| "profile contains interior NUL".to_string())?;
     let key = CString::new("TMPDIR").unwrap();
-    let value = CString::new(real_tmpdir).map_err(|_| "tmpdir path contains interior NUL".to_string())?;
+    let value =
+        CString::new(real_tmpdir).map_err(|_| "tmpdir path contains interior NUL".to_string())?;
     let params: [*const c_char; 3] = [key.as_ptr(), value.as_ptr(), std::ptr::null()];
 
     let mut errorbuf: *mut c_char = std::ptr::null_mut();

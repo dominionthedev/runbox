@@ -138,19 +138,21 @@ fn run_with_hooks(
     let global = runbox_core::global_config::load().unwrap_or_default();
 
     if let Some(hook) = &global.hooks.on_enter {
-        run_in_box(config, account_name, &[hook.clone()], dir)?;
+        run_in_box(config, account_name, std::slice::from_ref(hook), dir)?;
     }
+
     if let Some(hook) = &config.hooks.on_enter {
-        run_in_box(config, account_name, &[hook.clone()], dir)?;
+        run_in_box(config, account_name, std::slice::from_ref(hook), dir)?;
     }
 
     let result = run_in_box(config, account_name, command, dir);
 
     if let Some(hook) = &config.hooks.on_exit {
-        let _ = run_in_box(config, account_name, &[hook.clone()], dir);
+        let _ = run_in_box(config, account_name, std::slice::from_ref(hook), dir);
     }
+
     if let Some(hook) = &global.hooks.on_exit {
-        let _ = run_in_box(config, account_name, &[hook.clone()], dir);
+        let _ = run_in_box(config, account_name, std::slice::from_ref(hook), dir);
     }
 
     result
@@ -167,7 +169,10 @@ fn main() -> anyhow::Result<()> {
             let account = runbox_core::identity::provision(box_name)?;
             println!(
                 "provisioned {} (uid {}, gid {}, home {})",
-                account.account_name, account.uid, account.gid, account.home.display()
+                account.account_name,
+                account.uid,
+                account.gid,
+                account.home.display()
             );
 
             let project_dir = env::current_dir()?;
@@ -191,7 +196,11 @@ fn main() -> anyhow::Result<()> {
                 &account.account_name,
                 runbox_core::acl::GrantMode::ReadWrite,
             )?;
-            println!("granted acl: {} -> {}", project_dir.display(), account.account_name);
+            println!(
+                "granted acl: {} -> {}",
+                project_dir.display(),
+                account.account_name
+            );
 
             for path in &config.permissions.read {
                 runbox_core::acl::grant(
@@ -199,7 +208,10 @@ fn main() -> anyhow::Result<()> {
                     &account.account_name,
                     runbox_core::acl::GrantMode::ReadOnly,
                 )?;
-                println!("granted acl (read-only): {path} -> {}", account.account_name);
+                println!(
+                    "granted acl (read-only): {path} -> {}",
+                    account.account_name
+                );
             }
             for path in &config.permissions.write {
                 runbox_core::acl::grant(
@@ -207,7 +219,10 @@ fn main() -> anyhow::Result<()> {
                     &account.account_name,
                     runbox_core::acl::GrantMode::ReadWrite,
                 )?;
-                println!("granted acl (read-write): {path} -> {}", account.account_name);
+                println!(
+                    "granted acl (read-write): {path} -> {}",
+                    account.account_name
+                );
             }
 
             if !config.box_.interactive {
@@ -306,7 +321,9 @@ fn main() -> anyhow::Result<()> {
         Commands::Start => {
             let config = load_config()?;
             if config.box_.interactive {
-                anyhow::bail!("`runbox start` is for headless boxes only ([box] interactive = false)");
+                anyhow::bail!(
+                    "`runbox start` is for headless boxes only ([box] interactive = false)"
+                );
             }
             let box_name = &config.box_.name;
             let account_name = runbox_core::identity::account_name_for_box(box_name);
@@ -318,14 +335,21 @@ fn main() -> anyhow::Result<()> {
 
             let plist = runbox_core::launchd::write_plist(
                 box_name,
-                runbox_binary.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 runbox path"))?,
-                project_dir.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 project path"))?,
+                runbox_binary
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("non-UTF8 runbox path"))?,
+                project_dir
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("non-UTF8 project path"))?,
                 &log_dir,
             )?;
             println!("wrote {}", plist.display());
 
             runbox_core::launchd::bootstrap(box_name)?;
-            println!("started {box_name} (label {})", runbox_core::launchd::label_for(box_name));
+            println!(
+                "started {box_name} (label {})",
+                runbox_core::launchd::label_for(box_name)
+            );
             Ok(())
         }
 
@@ -339,7 +363,11 @@ fn main() -> anyhow::Result<()> {
         Commands::Status => {
             let config = load_config()?;
             let running = runbox_core::launchd::is_running(&config.box_.name)?;
-            println!("{}: {}", config.box_.name, if running { "running" } else { "not running" });
+            println!(
+                "{}: {}",
+                config.box_.name,
+                if running { "running" } else { "not running" }
+            );
             Ok(())
         }
 
