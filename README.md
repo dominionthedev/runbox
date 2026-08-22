@@ -25,20 +25,20 @@ make install-helper
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `runbox build` | Provision the box account, compile the Seatbelt profile, load the PF anchor. |
-| `runbox exec [cmd...]` | Run a command in the box. No args falls back to `[run].cmd`. |
-| `runbox shell` | Enter an interactive shell (`[box].shell`) in the box. |
-| `runbox setup` | Run `[setup]` (provisioning files + commands/script) against the box account. |
-| `runbox destroy` | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first. |
-| `runbox start` | Headless boxes only — register and load a launchd service running `[run].cmd`. |
-| `runbox stop` | Stop a running headless box's launchd service. |
-| `runbox status` | Show whether a headless box's service is currently running. |
-| `runbox logs [--follow] [--lines N]` | Show a headless box's stdout log. |
-| `runbox doctor` | Detect orphaned box accounts from interrupted builds. |
-| `runbox snapshot` / `restore` | Not yet implemented. |
-| `runbox ps` | Not yet implemented. |
+| Command                              | Does                                                                                                |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `runbox build`                       | Provision the box account, compile the Seatbelt profile, load the PF anchor.                        |
+| `runbox exec [cmd...]`               | Run a command in the box. No args falls back to `[run].cmd`.                                        |
+| `runbox shell`                       | Enter an interactive shell (`[box].shell`) in the box.                                              |
+| `runbox setup`                       | Run `[setup]` (provisioning files + commands/script) against the box account.                       |
+| `runbox destroy`                     | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first. |
+| `runbox start`                       | Headless boxes only — register and load a launchd service running `[run].cmd`.                      |
+| `runbox stop`                        | Stop a running headless box's launchd service.                                                      |
+| `runbox status`                      | Show whether a headless box's service is currently running.                                         |
+| `runbox logs [--follow] [--lines N]` | Show a headless box's stdout log.                                                                   |
+| `runbox doctor`                      | Detect orphaned box accounts from interrupted builds.                                               |
+| `runbox snapshot` / `restore`        | Not yet implemented.                                                                                |
+| `runbox ps`                          | Not yet implemented.                                                                                |
 
 ### Command quoting — this matters
 
@@ -159,10 +159,6 @@ runbox stop
 `runbox exec` still works on a headless box directly — useful for testing
 `[run].cmd` in the foreground before backgrounding it with `start`. It's
 just not how the box runs as a service.
-
-**Unverified on real hardware** — the plist shape and `launchctl`
-invocation follow documented conventions, not yet run, unlike the rest of
-this project's security-relevant paths.
 
 ## Hooks
 
