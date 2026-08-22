@@ -66,8 +66,12 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     while i < args.len() {
         match args[i].as_str() {
             "--env" => {
-                let pair = args.get(i + 1).ok_or("--env requires a KEY=VALUE argument")?;
-                let (key, value) = pair.split_once('=').ok_or("--env argument must be KEY=VALUE")?;
+                let pair = args
+                    .get(i + 1)
+                    .ok_or("--env requires a KEY=VALUE argument")?;
+                let (key, value) = pair
+                    .split_once('=')
+                    .ok_or("--env argument must be KEY=VALUE")?;
                 if key.is_empty() {
                     return Err("--env key cannot be empty");
                 }
@@ -85,7 +89,12 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     let binary_path = args.get(i).ok_or("missing target binary path")?.clone();
     let binary_args = args[i..].to_vec();
 
-    Ok(ParsedArgs { account_name, env_pairs, binary_path, binary_args })
+    Ok(ParsedArgs {
+        account_name,
+        env_pairs,
+        binary_path,
+        binary_args,
+    })
 }
 
 fn main() -> ExitCode {

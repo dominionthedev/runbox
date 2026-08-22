@@ -46,7 +46,11 @@ pub struct DoctorSection {
 
 impl Default for DoctorSection {
     fn default() -> Self {
-        Self { after_destroy: true, scheduled: false, interval: default_interval() }
+        Self {
+            after_destroy: true,
+            scheduled: false,
+            interval: default_interval(),
+        }
     }
 }
 
