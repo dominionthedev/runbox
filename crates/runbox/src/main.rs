@@ -63,8 +63,8 @@ fn main() -> anyhow::Result<()> {
                 project_dir: project_dir
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("non-UTF8 project path"))?,
-                extra_read: &[],
-                extra_write: &[],
+                extra_read: &config.permissions.read,
+                extra_write: &config.permissions.write,
                 network_allowed: config.network.mode == "allow"
                     || !config.network.allowlist.is_empty(),
             };
@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
             runbox_core::pf::load_anchor(box_name, &account.account_name, &config.network)?;
             println!("loaded pf anchor: runbox/{box_name}");
 
-            todo!("acl::grant")
+            todo!("acl::grant for project_dir and config.permissions.{read,write}")
         }
 
         Commands::Exec { command } => {
