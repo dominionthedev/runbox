@@ -16,6 +16,11 @@ pub const HOMES_ROOT: &str = "/private/var/db/runbox/homes";
 /// minimal — update both copies together if this changes.
 pub const REGISTRY_PATH: &str = "/private/var/db/runbox/managed_accounts";
 
+/// Where runbox-helper must be installed: root-owned, setuid bit set.
+/// `cargo build` alone never produces this state — see `make
+/// install-helper`. Not yet automated end-to-end; flagged, not hidden.
+pub const HELPER_INSTALL_PATH: &str = "/usr/local/libexec/runbox-helper";
+
 const UID_RANGE: std::ops::Range<u32> = 620..700;
 const GID_RANGE: std::ops::Range<u32> = 620..700;
 
@@ -94,7 +99,7 @@ pub fn find_orphans() -> anyhow::Result<Vec<String>> {
     Ok(orphans)
 }
 
-fn account_exists(account_name: &str) -> anyhow::Result<bool> {
+pub fn account_exists(account_name: &str) -> anyhow::Result<bool> {
     let status = Command::new("dscl")
         .args([".", "-read", &format!("/Users/{account_name}")])
         .output()?;
