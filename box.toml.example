@@ -3,8 +3,10 @@
 
 [box]
 name = "myproject"
-lifecycle = "persistent"   # persistent | stateless | ephemeral
-interactive = true          # false = headless, runs under launchd
+lifecycle = "persistent" # persistent | stateless | ephemeral
+interactive = true       # false = headless, runs under launchd
+shell = "/bin/zsh"       # what `runbox shell` execs — the account's own
+# UserShell is deliberately /usr/bin/false
 
 [execution]
 mode = "enforce"
@@ -12,28 +14,24 @@ default = "deny"
 
 [network]
 mode = "deny"
-allowlist = [
-  "registry.npmjs.org:443",
-  "github.com:443",
-]
+allowlist = ["registry.npmjs.org:443", "github.com:443"]
 dns = "localhost-only"
 timeout = "30s"
 
 [env]
 set = { NODE_ENV = "development" }
-pass_through = []   # host env vars to carry into the box, by name — empty by default
+pass_through = [
+] # host env vars to carry into the box, by name — empty by default
 
 [permissions]
-read = []   # extra host paths, absolute, beyond the project directory
+read = []  # extra host paths, absolute, beyond the project directory
 write = []
 
 [setup]
 provision = [
   # { src = "npmrc.template", dest = ".npmrc" },
 ]
-commands = [
-  "npm ci",
-]
+commands = ["npm ci"]
 # script = "setup.sh"   # mutually exclusive with `commands` — pick one
 
 [audit]
