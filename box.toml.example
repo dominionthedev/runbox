@@ -23,6 +23,10 @@ timeout = "30s"
 set = { NODE_ENV = "development" }
 pass_through = []   # host env vars to carry into the box, by name — empty by default
 
+[permissions]
+read = []   # extra host paths, absolute, beyond the project directory
+write = []
+
 [setup]
 provision = [
   # { src = "npmrc.template", dest = ".npmrc" },
