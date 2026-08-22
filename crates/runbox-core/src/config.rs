@@ -13,6 +13,8 @@ pub struct BoxToml {
     #[serde(default)]
     pub network: NetworkSection,
     #[serde(default)]
+    pub env: EnvSection,
+    #[serde(default)]
     pub setup: Option<SetupSection>,
     #[serde(default)]
     pub audit: AuditSection,
@@ -113,6 +115,14 @@ impl NetworkSection {
             )),
         }
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct EnvSection {
+    #[serde(default)]
+    pub set: HashMap<String, String>,
+    #[serde(default)]
+    pub pass_through: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
