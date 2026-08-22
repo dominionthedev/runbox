@@ -74,7 +74,32 @@ fn main() -> anyhow::Result<()> {
             runbox_core::pf::load_anchor(box_name, &account.account_name, &config.network)?;
             println!("loaded pf anchor: runbox/{box_name}");
 
-            todo!("acl::grant for project_dir and config.permissions read/write paths")
+            runbox_core::acl::grant(
+                &project_dir,
+                &account.account_name,
+                runbox_core::acl::GrantMode::ReadWrite,
+            )?;
+            println!("granted acl: {} -> {}", project_dir.display(), account.account_name);
+
+            for path in &config.permissions.read {
+                runbox_core::acl::grant(
+                    std::path::Path::new(path),
+                    &account.account_name,
+                    runbox_core::acl::GrantMode::ReadOnly,
+                )?;
+                println!("granted acl (read-only): {path} -> {}", account.account_name);
+            }
+            for path in &config.permissions.write {
+                runbox_core::acl::grant(
+                    std::path::Path::new(path),
+                    &account.account_name,
+                    runbox_core::acl::GrantMode::ReadWrite,
+                )?;
+                println!("granted acl (read-write): {path} -> {}", account.account_name);
+            }
+
+            println!("build complete for {box_name}");
+            Ok(())
         }
 
         Commands::Exec { command } => {
@@ -104,6 +129,31 @@ fn main() -> anyhow::Result<()> {
             let config = load_config()?;
             let box_name = &config.box_.name;
             let account_name = runbox_core::identity::account_name_for_box(box_name);
+            let project_dir = env::current_dir()?;
+
+            // ACL revoke must happen before deprovisioning the account —
+            // chmod -a matches an ACE by resolving the account name, and
+            // that resolution can fail once the account no longer exists.
+            runbox_core::acl::revoke(
+                &project_dir,
+                &account_name,
+                runbox_core::acl::GrantMode::ReadWrite,
+            )?;
+            for path in &config.permissions.read {
+                runbox_core::acl::revoke(
+                    std::path::Path::new(path),
+                    &account_name,
+                    runbox_core::acl::GrantMode::ReadOnly,
+                )?;
+            }
+            for path in &config.permissions.write {
+                runbox_core::acl::revoke(
+                    std::path::Path::new(path),
+                    &account_name,
+                    runbox_core::acl::GrantMode::ReadWrite,
+                )?;
+            }
+            println!("revoked acl grants");
 
             runbox_core::pf::unload_anchor(box_name)?;
             println!("unloaded pf anchor: runbox/{box_name}");
@@ -111,7 +161,7 @@ fn main() -> anyhow::Result<()> {
             runbox_core::identity::deprovision(&account_name)?;
             println!("deprovisioned {account_name}");
 
-            todo!("acl::revoke")
+            Ok(())
         }
 
         Commands::Snapshot => todo!("runbox_core::archive::snapshot"),
