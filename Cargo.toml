@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/runbox",
+    "crates/runbox-helper",
+    "crates/runbox-core",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["DominionDev"]
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
