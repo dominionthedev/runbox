@@ -79,7 +79,7 @@ fn main() -> anyhow::Result<()> {
 
         Commands::Exec { command } => {
             let _ = command;
-            todo!("fork, apply seatbelt (bind TMPDIR param via confstr(_CS_DARWIN_USER_TEMP_DIR)), invoke runbox-helper, exec")
+            todo!("fork, apply seatbelt (bind TMPDIR param via confstr(_CS_DARWIN_USER_TEMP_DIR)), build --env args via runbox_core::env::build_helper_args, invoke runbox-helper, exec")
         }
 
         Commands::Shell => todo!("same path as Exec with an interactive shell as target"),
