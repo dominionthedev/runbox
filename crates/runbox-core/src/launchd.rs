@@ -80,7 +80,9 @@ fn gui_target() -> anyhow::Result<String> {
 
 pub fn bootstrap(box_name: &str) -> anyhow::Result<()> {
     let path = plist_path(box_name)?;
-    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 plist path"))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 plist path"))?;
     let target = gui_target()?;
     let status = Command::new("launchctl")
         .args(["bootstrap", &target, path_str])
@@ -95,12 +97,16 @@ pub fn bootstrap(box_name: &str) -> anyhow::Result<()> {
 /// valid outcome of `runbox stop`, not a failure.
 pub fn bootout(box_name: &str) -> anyhow::Result<()> {
     let target = format!("{}/{}", gui_target()?, label_for(box_name));
-    let _ = Command::new("launchctl").args(["bootout", &target]).status()?;
+    let _ = Command::new("launchctl")
+        .args(["bootout", &target])
+        .status()?;
     Ok(())
 }
 
 pub fn is_running(box_name: &str) -> anyhow::Result<bool> {
     let target = format!("{}/{}", gui_target()?, label_for(box_name));
-    let status = Command::new("launchctl").args(["print", &target]).output()?;
+    let status = Command::new("launchctl")
+        .args(["print", &target])
+        .output()?;
     Ok(status.status.success())
 }

@@ -27,10 +27,12 @@ pub enum GrantMode {
 
 fn ace_string(account_name: &str, mode: GrantMode) -> String {
     match mode {
-        GrantMode::ReadOnly => format!("{account_name} allow read,execute,file_inherit,directory_inherit"),
-        GrantMode::ReadWrite => format!(
-            "{account_name} allow read,write,execute,delete,file_inherit,directory_inherit"
-        ),
+        GrantMode::ReadOnly => {
+            format!("{account_name} allow read,execute,file_inherit,directory_inherit")
+        }
+        GrantMode::ReadWrite => {
+            format!("{account_name} allow read,write,execute,delete,file_inherit,directory_inherit")
+        }
     }
 }
 
@@ -38,7 +40,9 @@ pub fn grant(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result
     if is_granted(path, account_name, mode)? {
         return Ok(()); // idempotent — chmod +a would otherwise duplicate the ACE
     }
-    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
     let status = Command::new("chmod")
         .args(["+a", &ace_string(account_name, mode), path_str])
         .status()?;
@@ -52,7 +56,9 @@ pub fn revoke(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Resul
     if !is_granted(path, account_name, mode)? {
         return Ok(());
     }
-    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
     let status = Command::new("chmod")
         .args(["-a", &ace_string(account_name, mode), path_str])
         .status()?;
@@ -63,7 +69,9 @@ pub fn revoke(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Resul
 }
 
 pub fn is_granted(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<bool> {
-    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
     let output = Command::new("ls").args(["-le", path_str]).output()?;
     if !output.status.success() {
         anyhow::bail!("ls -le failed for {path_str} — does it exist?");
