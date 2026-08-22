@@ -1,0 +1,18 @@
+# Runbox's own config — copy to ~/.config/runbox/config.toml.
+# Distinct from box.toml, which is a per-project box spec, not tool config.
+
+[defaults.setup]
+# Applied to every box at provisioning, before the project's own [setup].
+# NOT part of box.lock/reproduction — personal preference, not a project
+# requirement.
+provision = [
+  # { src = "zshrc.template", dest = ".zshrc" },
+]
+commands = [
+  # "git config --global user.name 'DominionDev'",
+]
+
+[doctor]
+after_destroy = true    # cheap orphan check after every `runbox destroy`
+scheduled = false        # opt-in periodic sweep via launchd, not a daemon
+interval = "24h"
