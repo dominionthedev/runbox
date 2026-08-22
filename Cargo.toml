@@ -1,10 +1,7 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/runbox",
-    "crates/runbox-helper",
-    "crates/runbox-core",
-]
+members = ["crates/runbox", "crates/runbox-helper", "crates/runbox-core"]
+exclude = ["verify"]
 
 [workspace.package]
 version = "0.1.0"
