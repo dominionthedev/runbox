@@ -17,6 +17,10 @@ pub struct BoxToml {
     #[serde(default)]
     pub permissions: PermissionsSection,
     #[serde(default)]
+    pub run: Option<RunSection>,
+    #[serde(default)]
+    pub hooks: HooksSection,
+    #[serde(default)]
     pub setup: Option<SetupSection>,
     #[serde(default)]
     pub audit: AuditSection,
@@ -162,6 +166,69 @@ impl PermissionsSection {
     }
 }
 
+/// A command declared either as a single shell-form string (interpreted
+/// via the box's own $SHELL -c — env expansion, pipes, && all happen
+/// INSIDE the box) or an explicit argv list (exec form — no shell
+/// involved, run directly). Same convention `runbox exec`'s own trailing
+/// arguments follow — see `resolve_argv`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum CommandSpec {
+    Shell(String),
+    Exec(Vec<String>),
+}
+
+impl CommandSpec {
+    pub fn resolve(&self, shell: &str) -> Vec<String> {
+        match self {
+            CommandSpec::Shell(s) => vec![shell.to_string(), "-c".to_string(), s.clone()],
+            CommandSpec::Exec(argv) => argv.clone(),
+        }
+    }
+}
+
+/// Same shell-form/exec-form convention as CommandSpec, applied to
+/// already-tokenized CLI arguments: a single token is treated as a shell
+/// command line (wrapped in `$SHELL -c`), more than one token is treated
+/// as a literal argv with no shell involved.
+///
+/// This is why quoting matters on the command line: `runbox exec 'echo
+/// $HOME'` (single-quoted) is ONE token — the host shell never expands
+/// `$HOME`, so it resolves as shell-form and `$HOME` expands inside the
+/// box. `runbox exec "echo $HOME"` (double-quoted) is expanded by the
+/// HOST shell before runbox ever sees it — the box receives an
+/// already-resolved host path baked into a literal string, which usually
+/// isn't what's intended. `runbox exec npm install` (unquoted, two
+/// tokens) is exec-form — no shell, no expansion concern either way.
+pub fn resolve_argv(tokens: &[String], shell: &str) -> Vec<String> {
+    if tokens.len() == 1 {
+        vec![shell.to_string(), "-c".to_string(), tokens[0].clone()]
+    } else {
+        tokens.to_vec()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RunSection {
+    pub cmd: CommandSpec,
+    /// cwd for `runbox exec` (no args) and `runbox shell`'s starting
+    /// directory — relative to the project root.
+    #[serde(default)]
+    pub dir: Option<String>,
+}
+
+/// Deliberately just two string fields, always shell-form — a hook is
+/// inherently one command line, no exec-form ambiguity worth adding.
+/// Hooks run as SEPARATE runbox-helper invocations before/after the main
+/// command, not sourced into the same shell session — a hook's `cd` or
+/// exported vars do not carry over to the command that follows it. Real
+/// limitation, stated here rather than left to be discovered.
+#[derive(Debug, Default, Deserialize)]
+pub struct HooksSection {
+    pub on_enter: Option<String>,
+    pub on_exit: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetupSection {
     #[serde(default)]
@@ -208,6 +275,12 @@ pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
         .permissions
         .validate()
         .map_err(|e| anyhow::anyhow!("box.toml [permissions]: {e}"))?;
+    if !parsed.box_.interactive && parsed.run.is_none() {
+        anyhow::bail!(
+            "box.toml: [box] interactive = false (headless) requires a [run] section with `cmd` — \
+             otherwise there is nothing for `runbox start` to run and no way to reach it afterward"
+        );
+    }
     if let Some(setup) = &parsed.setup {
         if !setup.commands.is_empty() && setup.script.is_some() {
             anyhow::bail!("box.toml [setup]: `commands` and `script` are mutually exclusive");
