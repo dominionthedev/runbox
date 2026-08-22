@@ -8,6 +8,7 @@ pub mod diff;
 pub mod env;
 pub mod global_config;
 pub mod identity;
+pub mod launchd;
 pub mod lock;
 pub mod pf;
 pub mod seatbelt;
