@@ -10,7 +10,7 @@
 //! this file changes, for reasons that have nothing to do with the
 //! project.
 
-use crate::config::SetupSection;
+use crate::config::{HooksSection, SetupSection};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -20,6 +20,12 @@ pub struct RunboxConfig {
     pub defaults: DefaultsSection,
     #[serde(default)]
     pub doctor: DoctorSection,
+    /// Applied to every box by default. Ordering with a project's own
+    /// [hooks]: on_enter runs global-then-box (outer wraps inner);
+    /// on_exit runs box-then-global (unwinds in reverse) — same
+    /// convention as middleware/setup-teardown ordering generally.
+    #[serde(default)]
+    pub hooks: HooksSection,
 }
 
 #[derive(Debug, Default, Deserialize)]
