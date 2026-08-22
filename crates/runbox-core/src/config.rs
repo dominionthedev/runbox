@@ -15,6 +15,8 @@ pub struct BoxToml {
     #[serde(default)]
     pub env: EnvSection,
     #[serde(default)]
+    pub permissions: PermissionsSection,
+    #[serde(default)]
     pub setup: Option<SetupSection>,
     #[serde(default)]
     pub audit: AuditSection,
@@ -125,6 +127,32 @@ pub struct EnvSection {
     pub pass_through: Vec<String>,
 }
 
+/// Extra host paths beyond the project directory. Each entry needs both a
+/// Seatbelt allow (this section) and an ACL grant (acl::grant, same as the
+/// project directory) — Seatbelt allowing a path doesn't override DAC; the
+/// box account still needs real OS permission to open something it
+/// doesn't own. The ACL side isn't wired yet — see acl.rs.
+#[derive(Debug, Default, Deserialize)]
+pub struct PermissionsSection {
+    #[serde(default)]
+    pub read: Vec<String>,
+    #[serde(default)]
+    pub write: Vec<String>,
+}
+
+impl PermissionsSection {
+    pub fn validate(&self) -> Result<(), String> {
+        for path in self.read.iter().chain(self.write.iter()) {
+            if !path.starts_with('/') {
+                return Err(format!(
+                    "[permissions] path {path:?} must be absolute — relative paths are ambiguous against a Seatbelt subpath rule"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SetupSection {
     #[serde(default)]
@@ -167,6 +195,10 @@ pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
         .network
         .validate()
         .map_err(|e| anyhow::anyhow!("box.toml [network]: {e}"))?;
+    parsed
+        .permissions
+        .validate()
+        .map_err(|e| anyhow::anyhow!("box.toml [permissions]: {e}"))?;
     if let Some(setup) = &parsed.setup {
         if !setup.commands.is_empty() && setup.script.is_some() {
             anyhow::bail!("box.toml [setup]: `commands` and `script` are mutually exclusive");
