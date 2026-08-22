@@ -41,6 +41,43 @@ fn load_config() -> anyhow::Result<BoxToml> {
     runbox_core::config::load(&cwd)
 }
 
+/// Invokes runbox-helper directly — no `sudo` prefix. The setuid bit on
+/// the installed binary is what grants elevated privilege for the
+/// duration of the call; `sudo` would mean a password prompt per
+/// invocation, defeating the entire point of a setuid helper. Requires
+/// `make install-helper` to have actually installed it with that bit set
+/// — see identity::HELPER_INSTALL_PATH.
+///
+/// stdio is inherited (`Command::status`, not `.output()`), not piped —
+/// required for readline, job control, and interactive shell behavior.
+fn run_in_box(config: &BoxToml, account_name: &str, command: &[String]) -> anyhow::Result<()> {
+    let profile_path = runbox_core::seatbelt::profile_path_for(&config.box_.name);
+    let profile_path_str = profile_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 profile path"))?;
+
+    let env_args = runbox_core::env::build_helper_args(&config.env)?;
+
+    let mut cmd = std::process::Command::new(runbox_core::identity::HELPER_INSTALL_PATH);
+    cmd.arg(account_name);
+    cmd.arg("--seatbelt-profile").arg(profile_path_str);
+    cmd.args(&env_args);
+    cmd.arg("--");
+    cmd.args(command);
+
+    let status = cmd.status().map_err(|e| {
+        anyhow::anyhow!(
+            "failed to invoke {}: {e} — is runbox-helper installed? (make install-helper)",
+            runbox_core::identity::HELPER_INSTALL_PATH
+        )
+    })?;
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
@@ -113,11 +150,32 @@ fn main() -> anyhow::Result<()> {
         }
 
         Commands::Exec { command } => {
-            let _ = command;
-            todo!("fork, apply seatbelt (bind TMPDIR param via confstr(_CS_DARWIN_USER_TEMP_DIR)), build --env args via runbox_core::env::build_helper_args, invoke runbox-helper, exec")
+            let config = load_config()?;
+            let box_name = &config.box_.name;
+            let account_name = runbox_core::identity::account_name_for_box(box_name);
+
+            if !runbox_core::identity::account_exists(&account_name)? {
+                anyhow::bail!("box {box_name} is not built — run `runbox build` first");
+            }
+            if command.is_empty() {
+                anyhow::bail!("no command given");
+            }
+
+            run_in_box(&config, &account_name, &command)
         }
 
-        Commands::Shell => todo!("same path as Exec with an interactive shell as target"),
+        Commands::Shell => {
+            let config = load_config()?;
+            let box_name = &config.box_.name;
+            let account_name = runbox_core::identity::account_name_for_box(box_name);
+
+            if !runbox_core::identity::account_exists(&account_name)? {
+                anyhow::bail!("box {box_name} is not built — run `runbox build` first");
+            }
+
+            let shell = config.box_.shell.clone();
+            run_in_box(&config, &account_name, &[shell])
+        }
 
         Commands::Setup => {
             let config = load_config()?;
