@@ -5,6 +5,8 @@ pub mod acl;
 pub mod archive;
 pub mod config;
 pub mod diff;
+pub mod env;
+pub mod global_config;
 pub mod identity;
 pub mod lock;
 pub mod pf;
