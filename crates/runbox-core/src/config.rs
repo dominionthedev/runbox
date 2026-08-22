@@ -29,6 +29,15 @@ pub struct BoxSection {
     pub lifecycle: Lifecycle,
     #[serde(default = "default_true")]
     pub interactive: bool,
+    /// The account's own UserShell is deliberately /usr/bin/false — never
+    /// consulted for interactivity, on purpose. `runbox shell` execs this
+    /// path directly instead.
+    #[serde(default = "default_shell")]
+    pub shell: String,
+}
+
+fn default_shell() -> String {
+    "/bin/zsh".to_string()
 }
 
 #[derive(Debug, Default, Deserialize)]
