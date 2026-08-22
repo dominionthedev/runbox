@@ -1,0 +1,14 @@
+[package]
+name = "runbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+runbox-core = { path = "../runbox-core" }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+
+[[bin]]
+name = "runbox"
+path = "src/main.rs"
