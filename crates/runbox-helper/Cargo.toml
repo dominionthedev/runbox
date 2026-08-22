@@ -1,0 +1,13 @@
+[package]
+name = "runbox-helper"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# Minimal dependency tree by design — this binary carries the setuid bit.
+[dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "runbox-helper"
+path = "src/main.rs"
