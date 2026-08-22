@@ -19,6 +19,10 @@ allowlist = [
 dns = "localhost-only"
 timeout = "30s"
 
+[env]
+set = { NODE_ENV = "development" }
+pass_through = []   # host env vars to carry into the box, by name — empty by default
+
 [setup]
 provision = [
   # { src = "npmrc.template", dest = ".npmrc" },
