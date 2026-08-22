@@ -101,16 +101,25 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     b
 }
 
-const PROFILES_DIR: &str = "/private/var/db/runbox/profiles";
+pub const PROFILES_DIR: &str = "/private/var/db/runbox/profiles";
+
+/// Deterministic profile path for a box — the same rule runbox-helper
+/// validates a passed-in --seatbelt-profile path against, so both sides
+/// agree on where profiles live without duplicating the join logic.
+pub fn profile_path_for(box_name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(PROFILES_DIR).join(format!("{box_name}.sb"))
+}
 
 /// Compiles and persists the profile. Applied later, at exec time, via
-/// sandbox_init() with TMPDIR passed as a parameter — there is no
-/// separate "load" step for Seatbelt.
+/// sandbox_init_with_parameters() with TMPDIR bound to the box account's
+/// real (symlink-resolved) per-account temp directory — resolved by
+/// runbox-helper after the privilege drop, not before; TMPDIR is
+/// per-account, confirmed on real hardware, not assumed.
 pub fn write_profile(box_name: &str, inputs: &ProfileInputs) -> anyhow::Result<std::path::PathBuf> {
     use std::process::Command;
 
     let profile = compile(inputs);
-    let path = std::path::PathBuf::from(PROFILES_DIR).join(format!("{box_name}.sb"));
+    let path = profile_path_for(box_name);
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("non-UTF8 profile path"))?;
