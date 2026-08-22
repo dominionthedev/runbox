@@ -1,27 +1,54 @@
 // runbox-helper — the only privileged component in Runbox.
 //
-// Usage: runbox-helper <box-account-name> [--env KEY=VALUE ...] -- <binary-path> [args...]
+// Usage: runbox-helper <box-account-name> [--seatbelt-profile <path>]
+//        [--env KEY=VALUE ...] -- <binary-path> [args...]
 //
-// Installed setuid-root. Validates the target account against Runbox's
-// naming scheme and managed-account registry, drops privilege
-// irreversibly, execs. Does not decide what runs — only who it can
-// become. If the calling process is compromised upstream, the blast
-// radius stays "arbitrary code as the box account," never root or any
-// other account.
+// Installed setuid-root. Order, verified on real hardware before this was
+// written (not assumed):
+//   1. validate account name + managed-account registry
+//   2. setgid/setuid — drop privilege, irreversible
+//   3. confstr(_CS_DARWIN_USER_TEMP_DIR) — per-account; must run AFTER
+//      the drop, since it resolves the CALLING process's own temp dir,
+//      not an arbitrary target account's. Confirmed different values for
+//      two different accounts on real hardware.
+//   4. canonicalize the resolved path — /var/folders/... is a symlink to
+//      /private/var/folders/...; Seatbelt's subpath matching operates on
+//      the real path, not the symlinked alias. Confirmed: using the
+//      symlinked form as the TMPDIR sandbox parameter caused every write
+//      inside it to be denied; using the canonicalized form fixed it.
+//   5. sandbox_init_with_parameters(profile, {TMPDIR: real_path}) — this
+//      is the box's own unprivileged account sandboxing itself; not a
+//      privilege-relevant step, no elevated capability involved.
+//   6. --env pairs applied
+//   7. execv
 //
-// --env pairs are set on the process AFTER privilege is dropped — this
-// is the box's own unprivileged account configuring its own exec, not a
-// privilege-relevant operation. No shell. No config parsing beyond the
-// registry lookup below. No third-party crates beyond libc.
+// No shell. No third-party crates beyond libc. sandbox_init_with_parameters
+// has no public binding in the libc crate (private/deprecated Apple API,
+// header not reliably installed) — declared manually below.
 
 use std::env;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int};
 use std::process::ExitCode;
 
-/// Must match runbox_core::identity::REGISTRY_PATH exactly. Duplicated as
-/// a literal rather than pulling in runbox-core, to keep this crate's
-/// dependency tree at libc only.
 const REGISTRY_PATH: &str = "/private/var/db/runbox/managed_accounts";
+
+/// Must match runbox_core::seatbelt::PROFILES_DIR exactly. A passed-in
+/// --seatbelt-profile path outside this directory is refused — the
+/// profile is applied after the privilege drop so a malicious profile
+/// can't itself escalate privilege, but validating the path still keeps
+/// this binary from ever loading an arbitrary, non-Runbox-managed policy.
+const PROFILES_DIR: &str = "/private/var/db/runbox/profiles";
+
+extern "C" {
+    fn sandbox_init_with_parameters(
+        profile: *const c_char,
+        flags: u64,
+        parameters: *const *const c_char,
+        errorbuf: *mut *mut c_char,
+    ) -> c_int;
+    fn sandbox_free_error(errorbuf: *mut c_char);
+}
 
 fn is_valid_account_name(name: &str) -> bool {
     let Some(suffix) = name.strip_prefix("_runbox_") else {
@@ -33,8 +60,6 @@ fn is_valid_account_name(name: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
-/// Exact line match against the registry file. Fails closed on any I/O
-/// error or missing file.
 fn is_runbox_managed_account(name: &str) -> bool {
     let Ok(contents) = std::fs::read_to_string(REGISTRY_PATH) else {
         return false;
@@ -49,6 +74,7 @@ fn fail(msg: &str) -> ExitCode {
 
 struct ParsedArgs {
     account_name: String,
+    seatbelt_profile: Option<String>,
     env_pairs: Vec<(String, String)>,
     binary_path: String,
     binary_args: Vec<String>,
@@ -56,22 +82,26 @@ struct ParsedArgs {
 
 fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     if args.len() < 2 {
-        return Err("usage: runbox-helper <box-account-name> [--env KEY=VALUE ...] -- <binary-path> [args...]");
+        return Err(
+            "usage: runbox-helper <account> [--seatbelt-profile <path>] [--env KEY=VALUE ...] -- <binary> [args...]",
+        );
     }
 
     let account_name = args[1].clone();
     let mut i = 2;
+    let mut seatbelt_profile = None;
     let mut env_pairs = Vec::new();
 
     while i < args.len() {
         match args[i].as_str() {
+            "--seatbelt-profile" => {
+                let path = args.get(i + 1).ok_or("--seatbelt-profile requires a path argument")?;
+                seatbelt_profile = Some(path.clone());
+                i += 2;
+            }
             "--env" => {
-                let pair = args
-                    .get(i + 1)
-                    .ok_or("--env requires a KEY=VALUE argument")?;
-                let (key, value) = pair
-                    .split_once('=')
-                    .ok_or("--env argument must be KEY=VALUE")?;
+                let pair = args.get(i + 1).ok_or("--env requires a KEY=VALUE argument")?;
+                let (key, value) = pair.split_once('=').ok_or("--env argument must be KEY=VALUE")?;
                 if key.is_empty() {
                     return Err("--env key cannot be empty");
                 }
@@ -82,19 +112,71 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
                 i += 1;
                 break;
             }
-            _ => return Err("expected --env or -- before the target binary"),
+            _ => return Err("expected --seatbelt-profile, --env, or -- before the target binary"),
         }
     }
 
     let binary_path = args.get(i).ok_or("missing target binary path")?.clone();
     let binary_args = args[i..].to_vec();
 
-    Ok(ParsedArgs {
-        account_name,
-        env_pairs,
-        binary_path,
-        binary_args,
-    })
+    Ok(ParsedArgs { account_name, seatbelt_profile, env_pairs, binary_path, binary_args })
+}
+
+/// Resolves this (already-dropped-privilege) process's real per-account
+/// temp directory, canonicalized past the /var/folders symlink. Must be
+/// called after setuid — see module docs.
+fn resolve_real_tmpdir() -> Result<String, String> {
+    let mut buf = vec![0u8; 1024];
+    let len = unsafe {
+        libc::confstr(
+            libc::_CS_DARWIN_USER_TEMP_DIR,
+            buf.as_mut_ptr() as *mut c_char,
+            buf.len(),
+        )
+    };
+    if len == 0 {
+        return Err("confstr(_CS_DARWIN_USER_TEMP_DIR) failed".to_string());
+    }
+    buf.truncate(len.saturating_sub(1));
+    let symlinked = String::from_utf8(buf).map_err(|_| "confstr returned non-UTF8".to_string())?;
+    let symlinked = symlinked.trim_end_matches('/');
+
+    std::fs::canonicalize(symlinked)
+        .map_err(|e| format!("canonicalize({symlinked}) failed: {e}"))
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+fn apply_sandbox(profile_path: &str, real_tmpdir: &str) -> Result<(), String> {
+    if !profile_path.starts_with(PROFILES_DIR) {
+        return Err(format!("refusing profile outside {PROFILES_DIR}: {profile_path}"));
+    }
+
+    let profile_text = std::fs::read_to_string(profile_path)
+        .map_err(|e| format!("reading {profile_path}: {e}"))?;
+
+    let c_profile = CString::new(profile_text).map_err(|_| "profile contains interior NUL".to_string())?;
+    let key = CString::new("TMPDIR").unwrap();
+    let value = CString::new(real_tmpdir).map_err(|_| "tmpdir path contains interior NUL".to_string())?;
+    let params: [*const c_char; 3] = [key.as_ptr(), value.as_ptr(), std::ptr::null()];
+
+    let mut errorbuf: *mut c_char = std::ptr::null_mut();
+    let ret = unsafe {
+        sandbox_init_with_parameters(c_profile.as_ptr(), 0, params.as_ptr(), &mut errorbuf)
+    };
+
+    if ret != 0 {
+        let msg = unsafe {
+            if errorbuf.is_null() {
+                "(no error message)".to_string()
+            } else {
+                let s = CStr::from_ptr(errorbuf).to_string_lossy().into_owned();
+                sandbox_free_error(errorbuf);
+                s
+            }
+        };
+        return Err(format!("sandbox_init_with_parameters failed: {msg}"));
+    }
+    Ok(())
 }
 
 fn main() -> ExitCode {
@@ -126,9 +208,7 @@ fn main() -> ExitCode {
         for (k, _) in env::vars() {
             env::remove_var(k);
         }
-        let home = std::ffi::CStr::from_ptr((*pw).pw_dir)
-            .to_string_lossy()
-            .into_owned();
+        let home = CStr::from_ptr((*pw).pw_dir).to_string_lossy().into_owned();
         env::set_var("HOME", home);
         env::set_var("USER", &parsed.account_name);
         env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
@@ -142,21 +222,36 @@ fn main() -> ExitCode {
         if libc::setuid(uid) != 0 {
             return fail("setuid failed");
         }
+    }
 
-        // Applied after the privilege drop above — see module docs.
-        for (key, value) in &parsed.env_pairs {
-            env::set_var(key, value);
+    // Everything below runs as the unprivileged box account — no elevated
+    // capability left to lose.
+    if let Some(profile_path) = &parsed.seatbelt_profile {
+        let real_tmpdir = match resolve_real_tmpdir() {
+            Ok(t) => t,
+            Err(e) => return fail(&e),
+        };
+        env::set_var("TMPDIR", &real_tmpdir);
+
+        if let Err(e) = apply_sandbox(profile_path, &real_tmpdir) {
+            return fail(&e);
         }
+    }
 
-        let c_binary = CString::new(parsed.binary_path.as_str()).expect("no interior NUL");
-        let c_args: Vec<CString> = parsed
-            .binary_args
-            .iter()
-            .map(|a| CString::new(a.as_str()).expect("no interior NUL"))
-            .collect();
-        let mut c_argv: Vec<*const libc::c_char> = c_args.iter().map(|a| a.as_ptr()).collect();
-        c_argv.push(std::ptr::null());
+    for (key, value) in &parsed.env_pairs {
+        env::set_var(key, value);
+    }
 
+    let c_binary = CString::new(parsed.binary_path.as_str()).expect("no interior NUL");
+    let c_args: Vec<CString> = parsed
+        .binary_args
+        .iter()
+        .map(|a| CString::new(a.as_str()).expect("no interior NUL"))
+        .collect();
+    let mut c_argv: Vec<*const c_char> = c_args.iter().map(|a| a.as_ptr()).collect();
+    c_argv.push(std::ptr::null());
+
+    unsafe {
         libc::execv(c_binary.as_ptr(), c_argv.as_ptr());
     }
 
