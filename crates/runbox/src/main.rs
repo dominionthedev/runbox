@@ -79,7 +79,11 @@ fn main() -> anyhow::Result<()> {
                 &account.account_name,
                 runbox_core::acl::GrantMode::ReadWrite,
             )?;
-            println!("granted acl: {} -> {}", project_dir.display(), account.account_name);
+            println!(
+                "granted acl: {} -> {}",
+                project_dir.display(),
+                account.account_name
+            );
 
             for path in &config.permissions.read {
                 runbox_core::acl::grant(
@@ -87,7 +91,10 @@ fn main() -> anyhow::Result<()> {
                     &account.account_name,
                     runbox_core::acl::GrantMode::ReadOnly,
                 )?;
-                println!("granted acl (read-only): {path} -> {}", account.account_name);
+                println!(
+                    "granted acl (read-only): {path} -> {}",
+                    account.account_name
+                );
             }
             for path in &config.permissions.write {
                 runbox_core::acl::grant(
@@ -95,7 +102,10 @@ fn main() -> anyhow::Result<()> {
                     &account.account_name,
                     runbox_core::acl::GrantMode::ReadWrite,
                 )?;
-                println!("granted acl (read-write): {path} -> {}", account.account_name);
+                println!(
+                    "granted acl (read-write): {path} -> {}",
+                    account.account_name
+                );
             }
 
             println!("build complete for {box_name}");
