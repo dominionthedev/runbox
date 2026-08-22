@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
             runbox_core::pf::load_anchor(box_name, &account.account_name, &config.network)?;
             println!("loaded pf anchor: runbox/{box_name}");
 
-            todo!("acl::grant for project_dir and config.permissions.{read,write}")
+            todo!("acl::grant for project_dir and config.permissions read/write paths")
         }
 
         Commands::Exec { command } => {
