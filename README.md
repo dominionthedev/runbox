@@ -63,6 +63,16 @@ cargo build --workspace
 
 Requires Xcode Command Line Tools. Run `scripts/check_env.py` to verify.
 
+`Exec`/`Shell` additionally require `runbox-helper` installed setuid-root:
+
+```sh
+make install-helper
+```
+
+Separate from `make install` deliberately — this is the one privileged,
+security-relevant install step. `cargo build` alone never produces a
+setuid binary.
+
 ## License
 
 MIT.
