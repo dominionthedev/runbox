@@ -17,3 +17,10 @@ commands = [
 after_destroy = true # cheap orphan check after every `runbox destroy`
 scheduled = false    # opt-in periodic sweep via launchd, not a daemon
 interval = "24h"
+
+# Applied to every box by default, wrapping (not replacing) the box's own
+# [hooks]: on_enter runs global-then-box, on_exit runs box-then-global —
+# same as any setup/teardown ordering. Always shell-form.
+[hooks]
+# on_enter = "echo entering a runbox"
+# on_exit = "echo leaving a runbox"

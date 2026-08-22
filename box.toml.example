@@ -27,6 +27,24 @@ pass_through = [
 read = []  # extra host paths, absolute, beyond the project directory
 write = []
 
+# [run] is optional for interactive boxes (falls back to `runbox exec
+# <args>` / `runbox shell`), but REQUIRED for headless boxes — otherwise
+# `runbox start` has nothing to run and there's no way to reach the box
+# afterward. `cmd` follows the same shell-form/exec-form convention as
+# `runbox exec`'s own arguments:
+#   cmd = "node server.js"          # shell-form — one string, via $SHELL -c
+#   cmd = ["node", "server.js"]     # exec-form — array, no shell
+[run]
+cmd = "npm run dev"
+dir = "src"   # optional — cwd for `runbox exec`/`shell`, relative to project root
+
+# Runs as separate runbox-helper invocations before/after the main
+# command — NOT sourced into the same shell session, so a `cd` or export
+# here does not carry over. Always shell-form (single string).
+[hooks]
+on_enter = "echo entering box"
+on_exit = "echo leaving box"
+
 [setup]
 provision = [
   # { src = "npmrc.template", dest = ".npmrc" },
