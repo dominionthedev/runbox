@@ -1,0 +1,33 @@
+# vim:ft=toml
+# Example box.toml — copy to your project root as `box.toml`.
+
+[box]
+name = "myproject"
+lifecycle = "persistent"   # persistent | stateless | ephemeral
+interactive = true          # false = headless, runs under launchd
+
+[execution]
+mode = "enforce"
+default = "deny"
+
+[network]
+mode = "deny"
+allowlist = [
+  "registry.npmjs.org:443",
+  "github.com:443",
+]
+dns = "localhost-only"
+timeout = "30s"
+
+[setup]
+provision = [
+  # { src = "npmrc.template", dest = ".npmrc" },
+]
+commands = [
+  "npm ci",
+]
+# script = "setup.sh"   # mutually exclusive with `commands` — pick one
+
+[audit]
+record = true
+retention = "30d"
