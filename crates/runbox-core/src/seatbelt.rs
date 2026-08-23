@@ -25,6 +25,11 @@ pub const MACH_LOOKUP_DENY: &[&str] = &[
 
 pub struct ProfileInputs<'a> {
     pub project_dir: &'a str,
+    /// The box account's own home — must be granted explicitly. Not
+    /// automatic; missing this blocks .zshrc, shell history, any dotfile.
+    /// Found on real hardware: `.zsh_history` locking failed with EPERM
+    /// because nothing granted this at all, not a locking-specific issue.
+    pub home_dir: &'a str,
     pub extra_read: &'a [String],
     pub extra_write: &'a [String],
     pub network_allowed: bool,
@@ -59,6 +64,10 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     }
     b.push('\n');
 
+    b.push_str(&format!(
+        "(allow file-read* file-write* (subpath \"{}\"))\n",
+        inputs.home_dir
+    ));
     b.push_str(&format!(
         "(allow file-read* file-write* (subpath \"{}\"))\n",
         inputs.project_dir
