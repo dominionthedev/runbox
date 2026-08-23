@@ -235,7 +235,9 @@ fn write_default_zshrc(
     box_name: &str,
 ) -> anyhow::Result<()> {
     let path = home.join(".zshrc");
-    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 zshrc path"))?;
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 zshrc path"))?;
 
     let content = format!(
         r#"# Written by runbox at provision time. Yours to customize —
@@ -253,7 +255,11 @@ fi
 "#
     );
 
-    run_sudo(&["sh", "-c", &format!("cat > {path_str} << 'ZSHEOF'\n{content}ZSHEOF")])?;
+    run_sudo(&[
+        "sh",
+        "-c",
+        &format!("cat > {path_str} << 'ZSHEOF'\n{content}ZSHEOF"),
+    ])?;
     run_sudo(&["chown", &format!("{uid}:{gid}"), path_str])?;
     Ok(())
 }
