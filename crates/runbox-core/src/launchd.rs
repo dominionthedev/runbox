@@ -45,7 +45,7 @@ pub fn write_plist(
     <key>ProgramArguments</key>
     <array>
         <string>{runbox_binary}</string>
-        <string>exec</string>
+        <string>run-headless</string>
     </array>
     <key>WorkingDirectory</key>
     <string>{project_dir}</string>
