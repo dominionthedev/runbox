@@ -227,18 +227,27 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Init { name, headless, run_cmd } => {
+        Commands::Init {
+            name,
+            headless,
+            run_cmd,
+        } => {
             let cwd = env::current_dir()?;
             let toml_path = cwd.join("box.toml");
             if toml_path.exists() {
-                anyhow::bail!("box.toml already exists at {} — not overwriting", toml_path.display());
+                anyhow::bail!(
+                    "box.toml already exists at {} — not overwriting",
+                    toml_path.display()
+                );
             }
             if headless && run_cmd.is_none() {
                 anyhow::bail!("--headless requires --run-cmd — a headless box needs [run].cmd or it can't be started");
             }
 
             let box_name = name.unwrap_or_else(|| {
-                cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "box".to_string())
+                cwd.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "box".to_string())
             });
 
             let mut content = format!(
@@ -277,7 +286,15 @@ fn main() -> anyhow::Result<()> {
                 }
                 SpecAction::Validate => match load_config() {
                     Ok(config) => {
-                        println!("OK — {} ({})", config.box_.name, if config.box_.interactive { "interactive" } else { "headless" });
+                        println!(
+                            "OK — {} ({})",
+                            config.box_.name,
+                            if config.box_.interactive {
+                                "interactive"
+                            } else {
+                                "headless"
+                            }
+                        );
                         Ok(())
                     }
                     Err(e) => {
@@ -565,7 +582,9 @@ fn main() -> anyhow::Result<()> {
             require_built(box_name, &account_name)?;
 
             let Some(run) = &config.run else {
-                anyhow::bail!("{box_name}: no [run].cmd — should have been caught at config parse time");
+                anyhow::bail!(
+                    "{box_name}: no [run].cmd — should have been caught at config parse time"
+                );
             };
             let command = run.cmd.resolve(&config.box_.shell);
             let dir = run.dir.as_deref();
