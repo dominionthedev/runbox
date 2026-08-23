@@ -140,6 +140,53 @@ pub struct EnvSection {
     pub pass_through: Vec<String>,
 }
 
+/// Env vars runbox-helper sets deliberately for correctness — HOME/USER
+/// must match the account's real identity for getpwuid-consistency, PATH
+/// is set to a known-safe minimal value. [env].set is applied AFTER these
+/// in runbox-helper, so an unvalidated override would silently defeat the
+/// exact invariant a real macOS account exists to provide.
+const PROTECTED_KEYS: &[&str] = &["HOME", "USER", "PATH"];
+
+/// Substring match, case-insensitive, against [env].pass_through names —
+/// a soft signal, not a block. pass_through is a deliberate hole by
+/// design (see module docs); this exists so using it with a
+/// credential-shaped name is a visible, printed choice, not a silent one.
+const SECRET_LIKE_PATTERNS: &[&str] =
+    &["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "APIKEY", "PRIVATE"];
+
+impl EnvSection {
+    /// Hard failure — HOME/USER/PATH cannot be overridden via [env].set.
+    pub fn validate(&self) -> Result<(), String> {
+        for protected in PROTECTED_KEYS {
+            if self.set.contains_key(*protected) {
+                return Err(format!(
+                    "[env] set cannot override {protected:?} — runbox-helper sets it deliberately \
+                     for account-identity correctness; overriding it here would defeat that"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Soft warnings — printed by the caller, never blocking.
+    pub fn warnings(&self) -> Vec<String> {
+        self.pass_through
+            .iter()
+            .filter(|name| {
+                let upper = name.to_uppercase();
+                SECRET_LIKE_PATTERNS.iter().any(|p| upper.contains(p))
+            })
+            .map(|name| {
+                format!(
+                    "[env] pass_through includes {name:?}, which looks credential-shaped — \
+                     confirm this is intentional; pass_through carries host values straight \
+                     into the box with no filtering"
+                )
+            })
+            .collect()
+    }
+}
+
 /// Extra host paths beyond the project directory. Each entry needs both a
 /// Seatbelt allow (this section) and an ACL grant (acl::grant, same as the
 /// project directory) — Seatbelt allowing a path doesn't override DAC; the
@@ -275,6 +322,7 @@ pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
         .permissions
         .validate()
         .map_err(|e| anyhow::anyhow!("box.toml [permissions]: {e}"))?;
+    parsed.env.validate().map_err(|e| anyhow::anyhow!("box.toml {e}"))?;
     if !parsed.box_.interactive && parsed.run.is_none() {
         anyhow::bail!(
             "box.toml: [box] interactive = false (headless) requires a [run] section with `cmd` — \
