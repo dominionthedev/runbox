@@ -8,10 +8,6 @@ interactive = true       # false = headless, runs under launchd
 shell = "/bin/zsh"       # what `runbox shell` execs — the account's own
 # UserShell is deliberately /usr/bin/false
 
-[execution]
-mode = "enforce"
-default = "deny"
-
 [network]
 mode = "deny"
 allowlist = ["registry.npmjs.org:443", "github.com:443"]
@@ -22,9 +18,15 @@ timeout = "30s"
 set = { NODE_ENV = "development" }
 pass_through = [
 ] # host env vars to carry into the box, by name — empty by default
+# path_extra bridges to a HOST-installed toolchain (rustup, nvm) — pair
+# with a matching [permissions].read grant on the same directory, or the
+# binary is on PATH but still unreadable. Appends to the baseline PATH,
+# never replaces it — [env].set rejects PATH outright.
+# path_extra = ["/Users/dominion/.cargo/bin"]
 
 [permissions]
 read = []  # extra host paths, absolute, beyond the project directory
+# read = ["/Users/dominion/.cargo", "/Users/dominion/.rustup"]
 write = []
 
 # [run] is optional for interactive boxes (falls back to `runbox exec
