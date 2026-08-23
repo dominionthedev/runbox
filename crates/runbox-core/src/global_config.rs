@@ -10,12 +10,22 @@
 //! this file changes, for reasons that have nothing to do with the
 //! project.
 
-use crate::config::{HooksSection, SetupSection};
+use crate::config::{HooksSection, SetupSection, CURRENT_BOX_SPEC_VERSION};
 use serde::Deserialize;
 use std::path::PathBuf;
 
+/// Tracks config::CURRENT_BOX_SPEC_VERSION for now — global config and
+/// box.toml happen to share a schema generation, but this is tracked
+/// separately since there's no structural reason they must stay in sync
+/// going forward.
+pub const CURRENT_CONFIG_SCHEMA_VERSION: u32 = CURRENT_BOX_SPEC_VERSION;
+
 #[derive(Debug, Default, Deserialize)]
 pub struct RunboxConfig {
+    /// Required only when the file exists at all — see `load`. No file
+    /// means defaults apply and this is never checked.
+    #[serde(default)]
+    pub schema_version: u32,
     #[serde(default)]
     pub defaults: DefaultsSection,
     #[serde(default)]
@@ -84,5 +94,15 @@ pub fn load() -> anyhow::Result<RunboxConfig> {
     }
     let raw = std::fs::read_to_string(&path)
         .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-    toml::from_str(&raw).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))
+    let parsed: RunboxConfig =
+        toml::from_str(&raw).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+    if parsed.schema_version != CURRENT_CONFIG_SCHEMA_VERSION {
+        anyhow::bail!(
+            "{} schema_version {} is not supported — this Runbox expects {}",
+            path.display(),
+            parsed.schema_version,
+            CURRENT_CONFIG_SCHEMA_VERSION
+        );
+    }
+    Ok(parsed)
 }
