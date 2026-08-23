@@ -123,7 +123,9 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
                 i += 2;
             }
             "--path-extra" => {
-                let dir = args.get(i + 1).ok_or("--path-extra requires a directory argument")?;
+                let dir = args
+                    .get(i + 1)
+                    .ok_or("--path-extra requires a directory argument")?;
                 path_extra.push(dir.clone());
                 i += 2;
             }
@@ -131,7 +133,9 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
                 i += 1;
                 break;
             }
-            _ => return Err("expected --seatbelt-profile, --env, --path-extra, or -- before the target binary"),
+            _ => return Err(
+                "expected --seatbelt-profile, --env, --path-extra, or -- before the target binary",
+            ),
         }
     }
 

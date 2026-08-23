@@ -145,8 +145,17 @@ const PROTECTED_KEYS: &[&str] = &["HOME", "USER", "PATH"];
 /// a soft signal, not a block. pass_through is a deliberate hole by
 /// design (see module docs); this exists so using it with a
 /// credential-shaped name is a visible, printed choice, not a silent one.
-const SECRET_LIKE_PATTERNS: &[&str] =
-    &["TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH", "APIKEY", "PRIVATE"];
+const SECRET_LIKE_PATTERNS: &[&str] = &[
+    "TOKEN",
+    "SECRET",
+    "KEY",
+    "PASSWORD",
+    "PASSWD",
+    "CREDENTIAL",
+    "AUTH",
+    "APIKEY",
+    "PRIVATE",
+];
 
 impl EnvSection {
     /// Hard failure — HOME/USER/PATH cannot be overridden via [env].set.
@@ -323,7 +332,10 @@ pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
         .permissions
         .validate()
         .map_err(|e| anyhow::anyhow!("box.toml [permissions]: {e}"))?;
-    parsed.env.validate().map_err(|e| anyhow::anyhow!("box.toml {e}"))?;
+    parsed
+        .env
+        .validate()
+        .map_err(|e| anyhow::anyhow!("box.toml {e}"))?;
     if !parsed.box_.interactive && parsed.run.is_none() {
         anyhow::bail!(
             "box.toml: [box] interactive = false (headless) requires a [run] section with `cmd` — \

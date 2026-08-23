@@ -52,4 +52,3 @@ impl BoxLock {
 pub fn generate(_config: &crate::config::BoxToml, _account_name: &str) -> anyhow::Result<BoxLock> {
     anyhow::bail!("lock::generate not yet implemented")
 }
-
