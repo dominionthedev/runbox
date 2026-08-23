@@ -41,6 +41,13 @@ enum Commands {
         #[arg(long)]
         follow: bool,
     },
+    /// Internal — invoked by the launchd plist, not meant to be run
+    /// directly. Runs [run].cmd with no foreground/interactive semantics.
+    /// Distinct from Exec, which is deliberately blocked on headless
+    /// boxes: this is launchd starting the box's own declared service,
+    /// not a human attaching to one.
+    #[command(hide = true)]
+    RunHeadless,
     /// Archive setup-produced state.
     Snapshot,
     /// Restore from a .box archive and verify against box.lock.
@@ -53,7 +60,11 @@ enum Commands {
 
 fn load_config() -> anyhow::Result<BoxToml> {
     let cwd = env::current_dir()?;
-    runbox_core::config::load(&cwd)
+    let config = runbox_core::config::load(&cwd)?;
+    for warning in config.env.warnings() {
+        eprintln!("warning: {warning}");
+    }
+    Ok(config)
 }
 
 fn require_built(box_name: &str, account_name: &str) -> anyhow::Result<()> {
@@ -235,6 +246,11 @@ fn main() -> anyhow::Result<()> {
         Commands::Exec { command } => {
             let config = load_config()?;
             let box_name = &config.box_.name;
+            if !config.box_.interactive {
+                anyhow::bail!(
+                    "{box_name} is headless — no foreground interaction. Use `runbox start`/`stop`/`status`/`logs`."
+                );
+            }
             let account_name = runbox_core::identity::account_name_for_box(box_name);
             require_built(box_name, &account_name)?;
 
@@ -246,6 +262,11 @@ fn main() -> anyhow::Result<()> {
         Commands::Shell => {
             let config = load_config()?;
             let box_name = &config.box_.name;
+            if !config.box_.interactive {
+                anyhow::bail!(
+                    "{box_name} is headless — no foreground interaction. Use `runbox start`/`stop`/`status`/`logs`."
+                );
+            }
             let account_name = runbox_core::identity::account_name_for_box(box_name);
             require_built(box_name, &account_name)?;
 
@@ -333,6 +354,12 @@ fn main() -> anyhow::Result<()> {
             let project_dir = env::current_dir()?;
             let log_dir = project_dir.join(".runbox").join("logs");
 
+            // WorkingDirectory must stay at project_dir, not [run].dir —
+            // this is the cwd of the `runbox exec` process launchd spawns,
+            // and config::load only looks for box.toml in its own cwd, no
+            // parent search. [run].dir is applied one layer down, by
+            // run_in_box's current_dir() on the runbox-helper invocation
+            // that `runbox exec` makes after loading config correctly.
             let plist = runbox_core::launchd::write_plist(
                 box_name,
                 runbox_binary
@@ -387,6 +414,20 @@ fn main() -> anyhow::Result<()> {
             cmd.arg(&log_path);
             cmd.status()?;
             Ok(())
+        }
+
+        Commands::RunHeadless => {
+            let config = load_config()?;
+            let box_name = &config.box_.name;
+            let account_name = runbox_core::identity::account_name_for_box(box_name);
+            require_built(box_name, &account_name)?;
+
+            let Some(run) = &config.run else {
+                anyhow::bail!("{box_name}: no [run].cmd — should have been caught at config parse time");
+            };
+            let command = run.cmd.resolve(&config.box_.shell);
+            let dir = run.dir.as_deref();
+            run_with_hooks(&config, &account_name, &command, dir)
         }
 
         Commands::Snapshot => todo!("runbox_core::archive::snapshot"),
