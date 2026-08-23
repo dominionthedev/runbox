@@ -57,6 +57,7 @@ pub fn provision(box_name: &str) -> anyhow::Result<ProvisionedAccount> {
     create_group(&group_name, gid)?;
     create_user(&account_name, &group_name, uid, gid, &home, box_name)?;
     create_home_dir(&home, uid, gid)?;
+    write_default_zshrc(&home, uid, gid, box_name)?;
     register_managed_account(&account_name)?;
 
     Ok(ProvisionedAccount {
@@ -223,6 +224,40 @@ fn create_home_dir(home: &std::path::Path, uid: u32, gid: u32) -> anyhow::Result
     Ok(())
 }
 
+/// Idempotent prompt injection ported from the pre-rebuild implementation
+/// — strip-then-prepend via precmd_functions, so it survives repeated
+/// sourcing rather than accumulating duplicate prefixes. The box's own
+/// .zshrc; edit it freely, it's not regenerated after provisioning.
+fn write_default_zshrc(
+    home: &std::path::Path,
+    uid: u32,
+    gid: u32,
+    box_name: &str,
+) -> anyhow::Result<()> {
+    let path = home.join(".zshrc");
+    let path_str = path.to_str().ok_or_else(|| anyhow::anyhow!("non-UTF8 zshrc path"))?;
+
+    let content = format!(
+        r#"# Written by runbox at provision time. Yours to customize —
+# not regenerated after this.
+export RUNBOX_BOX_NAME="{box_name}"
+__RUNBOX_PREFIX='[runbox:{box_name}] '
+
+__runbox_prompt() {{
+    PS1="${{PS1#"$__RUNBOX_PREFIX"}}"
+    PS1="${{__RUNBOX_PREFIX}}${{PS1}}"
+}}
+if (( ! ${{precmd_functions[(Ie)__runbox_prompt]:-0}} )); then
+    precmd_functions+=(__runbox_prompt)
+fi
+"#
+    );
+
+    run_sudo(&["sh", "-c", &format!("cat > {path_str} << 'ZSHEOF'\n{content}ZSHEOF")])?;
+    run_sudo(&["chown", &format!("{uid}:{gid}"), path_str])?;
+    Ok(())
+}
+
 fn register_managed_account(account_name: &str) -> anyhow::Result<()> {
     run_sudo(&["mkdir", "-p", "/private/var/db/runbox"])?;
     run_sudo(&["touch", REGISTRY_PATH])?;
@@ -239,8 +274,14 @@ fn unregister_managed_account(account_name: &str) -> anyhow::Result<()> {
     if !std::path::Path::new(REGISTRY_PATH).exists() {
         return Ok(());
     }
+    // Not `&&` — grep -v exits 1 when it finds zero non-matching lines,
+    // which is the normal/expected case when the registry has exactly
+    // one account and it's the one being removed. `&&` would then skip
+    // `mv` entirely and report the whole thing as failed even though
+    // nothing went wrong. `;` runs mv regardless of grep's match count —
+    // the redirect still produces a valid (possibly empty) tmp file.
     let cmd = format!(
-        "grep -v '^{account_name}$' {REGISTRY_PATH} > {REGISTRY_PATH}.tmp && mv {REGISTRY_PATH}.tmp {REGISTRY_PATH}"
+        "grep -v '^{account_name}$' {REGISTRY_PATH} > {REGISTRY_PATH}.tmp; mv {REGISTRY_PATH}.tmp {REGISTRY_PATH}"
     );
     run_sudo(&["sh", "-c", &cmd])?;
     Ok(())
@@ -250,7 +291,15 @@ fn read_registry() -> anyhow::Result<Vec<String>> {
     if !std::path::Path::new(REGISTRY_PATH).exists() {
         return Ok(Vec::new());
     }
-    let contents = std::fs::read_to_string(REGISTRY_PATH)?;
+    let contents = std::fs::read_to_string(REGISTRY_PATH).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            anyhow::anyhow!(
+                "permission denied reading {REGISTRY_PATH} (it's root-owned, 0600, on purpose) — try `sudo runbox doctor`"
+            )
+        } else {
+            anyhow::anyhow!("reading {REGISTRY_PATH}: {e}")
+        }
+    })?;
     Ok(contents
         .lines()
         .map(|l| l.trim().to_string())
