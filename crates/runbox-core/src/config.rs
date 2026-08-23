@@ -4,8 +4,17 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Versions the FORMAT, not the tool — runbox_version (in box.lock)
+/// records which binary produced a file; this records whether a given
+/// binary can even parse it. The two diverge independently. No migration
+/// machinery yet — premature until there's a second version to migrate
+/// from. Required, no default: absence should be a clear error, not
+/// silently assumed current.
+pub const CURRENT_BOX_SPEC_VERSION: u32 = 1;
+
 #[derive(Debug, Deserialize)]
 pub struct BoxToml {
+    pub schema_version: u32,
     #[serde(rename = "box")]
     pub box_: BoxSection,
     #[serde(default)]
@@ -299,6 +308,13 @@ fn default_retention() -> String {
 
 pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
     let parsed: BoxToml = toml::from_str(raw)?;
+    if parsed.schema_version != CURRENT_BOX_SPEC_VERSION {
+        anyhow::bail!(
+            "box.toml schema_version {} is not supported — this Runbox expects {}",
+            parsed.schema_version,
+            CURRENT_BOX_SPEC_VERSION
+        );
+    }
     parsed
         .network
         .validate()

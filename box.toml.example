@@ -1,6 +1,8 @@
 # vim:ft=toml
 # Example box.toml — copy to your project root as `box.toml`.
 
+schema_version = 1
+
 [box]
 name = "myproject"
 lifecycle = "persistent" # persistent | stateless | ephemeral

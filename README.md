@@ -83,6 +83,8 @@ Two separate files, not one:
 ### `box.toml`
 
 ```toml
+schema_version = 1   # versions the format, not the tool — see box.lock's runbox_version
+
 [box]
 name = "myproject"
 lifecycle = "persistent"   # persistent | stateless | ephemeral
