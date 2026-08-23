@@ -1,7 +1,7 @@
 // runbox-helper — the only privileged component in Runbox.
 //
 // Usage: runbox-helper <box-account-name> [--seatbelt-profile <path>]
-//        [--env KEY=VALUE ...] -- <binary-path> [args...]
+//        [--env KEY=VALUE ...] [--path-extra <dir> ...] -- <binary-path> [args...]
 //
 // Installed setuid-root. Order, verified on real hardware before this was
 // written (not assumed):
@@ -76,6 +76,7 @@ struct ParsedArgs {
     account_name: String,
     seatbelt_profile: Option<String>,
     env_pairs: Vec<(String, String)>,
+    path_extra: Vec<String>,
     binary_path: String,
     binary_args: Vec<String>,
 }
@@ -83,7 +84,7 @@ struct ParsedArgs {
 fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     if args.len() < 2 {
         return Err(
-            "usage: runbox-helper <account> [--seatbelt-profile <path>] [--env KEY=VALUE ...] -- <binary> [args...]",
+            "usage: runbox-helper <account> [--seatbelt-profile <path>] [--env KEY=VALUE ...] [--path-extra <dir> ...] -- <binary> [args...]",
         );
     }
 
@@ -91,6 +92,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
     let mut i = 2;
     let mut seatbelt_profile = None;
     let mut env_pairs = Vec::new();
+    let mut path_extra = Vec::new();
 
     while i < args.len() {
         match args[i].as_str() {
@@ -111,14 +113,25 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
                 if key.is_empty() {
                     return Err("--env key cannot be empty");
                 }
+                // Belt-and-suspenders: runbox-core already rejects PATH in
+                // [env].set at config-parse time, but this binary doesn't
+                // trust its caller blindly — reject it here too.
+                if key == "PATH" {
+                    return Err("--env cannot set PATH — use --path-extra to append instead");
+                }
                 env_pairs.push((key.to_string(), value.to_string()));
+                i += 2;
+            }
+            "--path-extra" => {
+                let dir = args.get(i + 1).ok_or("--path-extra requires a directory argument")?;
+                path_extra.push(dir.clone());
                 i += 2;
             }
             "--" => {
                 i += 1;
                 break;
             }
-            _ => return Err("expected --seatbelt-profile, --env, or -- before the target binary"),
+            _ => return Err("expected --seatbelt-profile, --env, --path-extra, or -- before the target binary"),
         }
     }
 
@@ -129,6 +142,7 @@ fn parse_args(args: &[String]) -> Result<ParsedArgs, &'static str> {
         account_name,
         seatbelt_profile,
         env_pairs,
+        path_extra,
         binary_path,
         binary_args,
     })
@@ -256,6 +270,15 @@ fn main() -> ExitCode {
 
     for (key, value) in &parsed.env_pairs {
         env::set_var(key, value);
+    }
+
+    // Additive only — appends to the baseline set above, never replaces
+    // it. The one sanctioned way to extend PATH; --env rejects PATH
+    // outright (see parse_args).
+    if !parsed.path_extra.is_empty() {
+        let current = env::var("PATH").unwrap_or_default();
+        let extended = format!("{current}:{}", parsed.path_extra.join(":"));
+        env::set_var("PATH", extended);
     }
 
     let c_binary = CString::new(parsed.binary_path.as_str()).expect("no interior NUL");
