@@ -35,6 +35,14 @@ pub fn build_helper_args(env: &EnvSection) -> anyhow::Result<Vec<String>> {
         }
     }
 
+    for dir in &env.path_extra {
+        if !dir.starts_with('/') {
+            anyhow::bail!("[env] path_extra entry {dir:?} must be an absolute path");
+        }
+        args.push("--path-extra".to_string());
+        args.push(dir.clone());
+    }
+
     Ok(args)
 }
 
