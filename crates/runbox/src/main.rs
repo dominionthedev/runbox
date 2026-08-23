@@ -13,6 +13,26 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Create an initial box.toml in the current directory.
+    Init {
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        headless: bool,
+        /// Required with --headless — [run].cmd, shell-form (one string).
+        #[arg(long)]
+        run_cmd: Option<String>,
+    },
+    /// View or edit the current project's box.toml.
+    Spec {
+        #[command(subcommand)]
+        action: SpecAction,
+    },
+    /// View or edit Runbox's own config (~/.config/runbox/config.toml).
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Provision the box account, compile the Seatbelt profile, load the PF anchor.
     Build,
     /// Run a command in the box. No args falls back to [run].cmd. A single
@@ -58,6 +78,28 @@ enum Commands {
     Doctor,
 }
 
+#[derive(Subcommand)]
+enum SpecAction {
+    /// Print the raw box.toml content.
+    Show,
+    /// Open box.toml in $EDITOR.
+    Edit,
+    /// Print the path to box.toml.
+    Path,
+    /// Parse and validate box.toml without provisioning anything.
+    Validate,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Print the raw config content, or note that none exists (defaults apply).
+    Show,
+    /// Open the config in $EDITOR — creates an empty file first if missing.
+    Edit,
+    /// Print the path to the config file.
+    Path,
+}
+
 fn load_config() -> anyhow::Result<BoxToml> {
     let cwd = env::current_dir()?;
     let config = runbox_core::config::load(&cwd)?;
@@ -65,6 +107,15 @@ fn load_config() -> anyhow::Result<BoxToml> {
         eprintln!("warning: {warning}");
     }
     Ok(config)
+}
+
+fn open_in_editor(path: &std::path::Path) -> anyhow::Result<()> {
+    let editor = env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
+    let status = std::process::Command::new(&editor).arg(path).status()?;
+    if !status.success() {
+        anyhow::bail!("{editor} exited with a non-zero status");
+    }
+    Ok(())
 }
 
 fn require_built(box_name: &str, account_name: &str) -> anyhow::Result<()> {
@@ -173,6 +224,93 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Init { name, headless, run_cmd } => {
+            let cwd = env::current_dir()?;
+            let toml_path = cwd.join("box.toml");
+            if toml_path.exists() {
+                anyhow::bail!("box.toml already exists at {} — not overwriting", toml_path.display());
+            }
+            if headless && run_cmd.is_none() {
+                anyhow::bail!("--headless requires --run-cmd — a headless box needs [run].cmd or it can't be started");
+            }
+
+            let box_name = name.unwrap_or_else(|| {
+                cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "box".to_string())
+            });
+
+            let mut content = format!(
+                "[box]\nname = \"{box_name}\"\nlifecycle = \"persistent\"\ninteractive = {}\nshell = \"/bin/zsh\"\n\n[network]\nmode = \"deny\"\nallowlist = []\n",
+                !headless
+            );
+            if let Some(cmd) = run_cmd {
+                content.push_str(&format!("\n[run]\ncmd = \"{cmd}\"\n"));
+            }
+
+            std::fs::write(&toml_path, content)?;
+            println!("wrote {}", toml_path.display());
+            Ok(())
+        }
+
+        Commands::Spec { action } => {
+            let cwd = env::current_dir()?;
+            let toml_path = cwd.join("box.toml");
+            match action {
+                SpecAction::Show => {
+                    let content = std::fs::read_to_string(&toml_path)
+                        .map_err(|e| anyhow::anyhow!("reading {}: {e}", toml_path.display()))?;
+                    print!("{content}");
+                    Ok(())
+                }
+                SpecAction::Edit => {
+                    if !toml_path.exists() {
+                        anyhow::bail!("no box.toml here — run `runbox init` first");
+                    }
+                    open_in_editor(&toml_path)
+                }
+                SpecAction::Path => {
+                    println!("{}", toml_path.display());
+                    Ok(())
+                }
+                SpecAction::Validate => match load_config() {
+                    Ok(config) => {
+                        println!("OK — {} ({})", config.box_.name, if config.box_.interactive { "interactive" } else { "headless" });
+                        Ok(())
+                    }
+                    Err(e) => {
+                        println!("INVALID: {e}");
+                        std::process::exit(1);
+                    }
+                },
+            }
+        }
+
+        Commands::Config { action } => {
+            let path = runbox_core::global_config::config_path()?;
+            match action {
+                ConfigAction::Show => {
+                    if path.exists() {
+                        print!("{}", std::fs::read_to_string(&path)?);
+                    } else {
+                        println!("no config file at {} — using defaults", path.display());
+                    }
+                    Ok(())
+                }
+                ConfigAction::Edit => {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    if !path.exists() {
+                        std::fs::write(&path, "")?;
+                    }
+                    open_in_editor(&path)
+                }
+                ConfigAction::Path => {
+                    println!("{}", path.display());
+                    Ok(())
+                }
+            }
+        }
+
         Commands::Build => {
             let config = load_config()?;
             let box_name = &config.box_.name;
