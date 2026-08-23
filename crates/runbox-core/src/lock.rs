@@ -14,8 +14,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Matches config::CURRENT_BOX_SPEC_VERSION in spirit, tracked separately
+/// — the lock format and the spec format can version independently.
+pub const CURRENT_LOCK_SCHEMA_VERSION: u32 = 1;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BoxLock {
+    pub schema_version: u32,
     pub box_name: String,
     pub account_name: String,
     /// Which Runbox version produced this lock — a restore mismatch is
