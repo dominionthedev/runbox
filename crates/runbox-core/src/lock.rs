@@ -60,8 +60,8 @@ impl BoxLock {
         }
         let raw = std::fs::read_to_string(&path)
             .map_err(|e| anyhow::anyhow!("reading {}: {e}", path.display()))?;
-        let lock: BoxLock = toml::from_str(&raw)
-            .map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
+        let lock: BoxLock =
+            toml::from_str(&raw).map_err(|e| anyhow::anyhow!("parsing {}: {e}", path.display()))?;
         Ok(Some(lock))
     }
 }

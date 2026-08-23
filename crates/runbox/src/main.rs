@@ -122,7 +122,11 @@ fn open_in_editor(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_built(box_name: &str, account_name: &str, project_dir: &std::path::Path) -> anyhow::Result<()> {
+fn require_built(
+    box_name: &str,
+    account_name: &str,
+    project_dir: &std::path::Path,
+) -> anyhow::Result<()> {
     if !runbox_core::identity::account_exists(account_name)? {
         anyhow::bail!("box {box_name} is not built — run `runbox build` first");
     }

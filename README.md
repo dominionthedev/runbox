@@ -25,23 +25,23 @@ make install-helper
 
 ## Commands
 
-| Command | Does |
-| --- | --- |
-| `runbox init [--name] [--headless --run-cmd <cmd>]` | Create an initial `box.toml` in the current directory. |
-| `runbox spec show/edit/path/validate` | View, edit, locate, or validate the current project's `box.toml`. |
-| `runbox config show/edit/path` | View, edit, or locate Runbox's own config (`~/.config/runbox/config.toml`). |
-| `runbox build` | Provision the box account, compile the Seatbelt profile, load the PF anchor, write box.lock. `exec`/`shell`/headless start all require box.lock to exist. |
-| `runbox exec [cmd...]` | Run a command in the box. No args falls back to `[run].cmd`. Interactive boxes only — headless boxes reject this, see below. |
-| `runbox shell` | Enter an interactive shell (`[box].shell`) in the box. Interactive boxes only. |
-| `runbox setup` | Run `[setup]` (provisioning files + commands/script) against the box account. |
-| `runbox destroy` | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first. |
-| `runbox start` | Headless boxes only — register and load a launchd service running `[run].cmd`. |
-| `runbox stop` | Stop a running headless box's launchd service. |
-| `runbox status` | Show whether a headless box's service is currently running. |
-| `runbox logs [--follow] [--lines N]` | Show a headless box's stdout log. |
-| `runbox doctor` | Detect orphaned box accounts from interrupted builds. |
-| `runbox snapshot` / `restore` | Not yet implemented. |
-| `runbox ps` | Not yet implemented. |
+| Command                                             | Does                                                                                                                                                      |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `runbox init [--name] [--headless --run-cmd <cmd>]` | Create an initial `box.toml` in the current directory.                                                                                                    |
+| `runbox spec show/edit/path/validate`               | View, edit, locate, or validate the current project's `box.toml`.                                                                                         |
+| `runbox config show/edit/path`                      | View, edit, or locate Runbox's own config (`~/.config/runbox/config.toml`).                                                                               |
+| `runbox build`                                      | Provision the box account, compile the Seatbelt profile, load the PF anchor, write box.lock. `exec`/`shell`/headless start all require box.lock to exist. |
+| `runbox exec [cmd...]`                              | Run a command in the box. No args falls back to `[run].cmd`. Interactive boxes only — headless boxes reject this, see below.                              |
+| `runbox shell`                                      | Enter an interactive shell (`[box].shell`) in the box. Interactive boxes only.                                                                            |
+| `runbox setup`                                      | Run `[setup]` (provisioning files + commands/script) against the box account.                                                                             |
+| `runbox destroy`                                    | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first.                                                       |
+| `runbox start`                                      | Headless boxes only — register and load a launchd service running `[run].cmd`.                                                                            |
+| `runbox stop`                                       | Stop a running headless box's launchd service.                                                                                                            |
+| `runbox status`                                     | Show whether a headless box's service is currently running.                                                                                               |
+| `runbox logs [--follow] [--lines N]`                | Show a headless box's stdout log.                                                                                                                         |
+| `runbox doctor`                                     | Detect orphaned box accounts from interrupted builds.                                                                                                     |
+| `runbox snapshot` / `restore`                       | Not yet implemented.                                                                                                                                      |
+| `runbox ps`                                         | Not yet implemented.                                                                                                                                      |
 
 ### Command quoting — this matters
 
