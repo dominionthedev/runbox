@@ -74,6 +74,9 @@ enum Commands {
     Restore,
     /// List processes running under this box's account.
     Ps,
+    /// Check whether box.lock still matches the current box.toml and
+    /// .runbox/setup/ contents — drift detection, not enforcement.
+    Verify,
     /// Clean up orphaned box accounts from interrupted builds.
     Doctor,
 }
@@ -239,7 +242,8 @@ fn main() -> anyhow::Result<()> {
             });
 
             let mut content = format!(
-                "[box]\nname = \"{box_name}\"\nlifecycle = \"persistent\"\ninteractive = {}\nshell = \"/bin/zsh\"\n\n[network]\nmode = \"deny\"\nallowlist = []\n",
+                "schema_version = {}\n\n[box]\nname = \"{box_name}\"\nlifecycle = \"persistent\"\ninteractive = {}\nshell = \"/bin/zsh\"\n\n[network]\nmode = \"deny\"\nallowlist = []\n",
+                runbox_core::config::CURRENT_BOX_SPEC_VERSION,
                 !headless
             );
             if let Some(cmd) = run_cmd {
@@ -571,6 +575,12 @@ fn main() -> anyhow::Result<()> {
         Commands::Snapshot => todo!("runbox_core::archive::snapshot"),
         Commands::Restore => todo!("runbox_core::archive::restore + lock::verify_against"),
         Commands::Ps => todo!("uid-scoped proc_listpids"),
+
+        Commands::Verify => todo!(
+            "compare box.lock's config_hash/setup_assets_hash against a freshly computed hash of \
+             the current box.toml/.runbox/setup — blocked on lock::generate, which needs Serialize \
+             on the config structs and a canonicalization strategy decided first"
+        ),
 
         Commands::Doctor => {
             let orphans = runbox_core::identity::find_orphans()?;
