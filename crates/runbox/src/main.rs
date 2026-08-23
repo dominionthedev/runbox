@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use runbox_core::config::BoxToml;
 use runbox_core::seatbelt::ProfileInputs;
 use std::env;
+use std::os::unix::process::CommandExt;
 
 /// Runbox — macOS-only dev-box isolation.
 #[derive(Parser)]
@@ -121,9 +122,18 @@ fn open_in_editor(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn require_built(box_name: &str, account_name: &str) -> anyhow::Result<()> {
+fn require_built(box_name: &str, account_name: &str, project_dir: &std::path::Path) -> anyhow::Result<()> {
     if !runbox_core::identity::account_exists(account_name)? {
         anyhow::bail!("box {box_name} is not built — run `runbox build` first");
+    }
+    // box.lock's own security-relevant checks (drift verification via
+    // `runbox verify`) aren't real yet — that's blocked on lock content
+    // canonicalization being settled. This is presence-only: the account
+    // existing isn't enough, the lock generated alongside it must exist
+    // too, since exec/shell are meant to depend on the box actually
+    // having completed a real `build`, not just having an account.
+    if runbox_core::lock::BoxLock::load(project_dir)?.is_none() {
+        anyhow::bail!("box.lock missing for {box_name} — run `runbox build` first");
     }
     Ok(())
 }
@@ -174,6 +184,33 @@ fn run_in_box(
     cmd.args(&env_args);
     cmd.arg("--");
     cmd.args(command);
+
+    // Setpgid alone puts this process in a NEW process group that is NOT
+    // the terminal's foreground group — any interactive program (a
+    // shell, a REPL) that then tries to read from the tty gets SIGTTIN
+    // or, as observed on real hardware, "can't set tty pgrp: operation
+    // not permitted" and hangs. Fixed the same way the pre-rebuild
+    // implementation fixed it: put the child in its own process group,
+    // then explicitly hand it the terminal's foreground group via
+    // tcsetpgrp, before exec. Persists across BOTH execs in the chain
+    // (runbox -> runbox-helper -> the actual shell), since pgid/ctty
+    // state survives execve.
+    //
+    // Only when stdin is a real tty — piped/non-interactive invocations
+    // have nothing to hand over, and tcsetpgrp would just fail ENOTTY.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setpgid(0, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::isatty(libc::STDIN_FILENO) != 0
+                && libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpid()) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
 
     let status = cmd.status().map_err(|e| {
         anyhow::anyhow!(
@@ -350,6 +387,10 @@ fn main() -> anyhow::Result<()> {
                 project_dir: project_dir
                     .to_str()
                     .ok_or_else(|| anyhow::anyhow!("non-UTF8 project path"))?,
+                home_dir: account
+                    .home
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("non-UTF8 home path"))?,
                 extra_read: &config.permissions.read,
                 extra_write: &config.permissions.write,
                 network_allowed: config.network.mode == "allow"
@@ -395,6 +436,10 @@ fn main() -> anyhow::Result<()> {
                 );
             }
 
+            let lock = runbox_core::lock::generate(&config, &account.account_name, &project_dir)?;
+            let lock_path = lock.write(&project_dir)?;
+            println!("wrote {}", lock_path.display());
+
             if !config.box_.interactive {
                 println!("headless box built — use `runbox start` to run it as a service");
             }
@@ -411,7 +456,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             let account_name = runbox_core::identity::account_name_for_box(box_name);
-            require_built(box_name, &account_name)?;
+            require_built(box_name, &account_name, &env::current_dir()?)?;
 
             let final_command = resolve_final_command(&command, &config.run, &config.box_.shell)?;
             let dir = config.run.as_ref().and_then(|r| r.dir.as_deref());
@@ -427,7 +472,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             let account_name = runbox_core::identity::account_name_for_box(box_name);
-            require_built(box_name, &account_name)?;
+            require_built(box_name, &account_name, &env::current_dir()?)?;
 
             let shell = config.box_.shell.clone();
             let dir = config.run.as_ref().and_then(|r| r.dir.as_deref());
@@ -507,7 +552,7 @@ fn main() -> anyhow::Result<()> {
             }
             let box_name = &config.box_.name;
             let account_name = runbox_core::identity::account_name_for_box(box_name);
-            require_built(box_name, &account_name)?;
+            require_built(box_name, &account_name, &env::current_dir()?)?;
 
             let runbox_binary = env::current_exe()?;
             let project_dir = env::current_dir()?;
@@ -579,7 +624,7 @@ fn main() -> anyhow::Result<()> {
             let config = load_config()?;
             let box_name = &config.box_.name;
             let account_name = runbox_core::identity::account_name_for_box(box_name);
-            require_built(box_name, &account_name)?;
+            require_built(box_name, &account_name, &env::current_dir()?)?;
 
             let Some(run) = &config.run else {
                 anyhow::bail!(
