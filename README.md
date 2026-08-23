@@ -25,20 +25,23 @@ make install-helper
 
 ## Commands
 
-| Command                              | Does                                                                                                |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `runbox build`                       | Provision the box account, compile the Seatbelt profile, load the PF anchor.                        |
-| `runbox exec [cmd...]`               | Run a command in the box. No args falls back to `[run].cmd`.                                        |
-| `runbox shell`                       | Enter an interactive shell (`[box].shell`) in the box.                                              |
-| `runbox setup`                       | Run `[setup]` (provisioning files + commands/script) against the box account.                       |
-| `runbox destroy`                     | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first. |
-| `runbox start`                       | Headless boxes only — register and load a launchd service running `[run].cmd`.                      |
-| `runbox stop`                        | Stop a running headless box's launchd service.                                                      |
-| `runbox status`                      | Show whether a headless box's service is currently running.                                         |
-| `runbox logs [--follow] [--lines N]` | Show a headless box's stdout log.                                                                   |
-| `runbox doctor`                      | Detect orphaned box accounts from interrupted builds.                                               |
-| `runbox snapshot` / `restore`        | Not yet implemented.                                                                                |
-| `runbox ps`                          | Not yet implemented.                                                                                |
+| Command | Does |
+| --- | --- |
+| `runbox init [--name] [--headless --run-cmd <cmd>]` | Create an initial `box.toml` in the current directory. |
+| `runbox spec show/edit/path/validate` | View, edit, locate, or validate the current project's `box.toml`. |
+| `runbox config show/edit/path` | View, edit, or locate Runbox's own config (`~/.config/runbox/config.toml`). |
+| `runbox build` | Provision the box account, compile the Seatbelt profile, load the PF anchor. |
+| `runbox exec [cmd...]` | Run a command in the box. No args falls back to `[run].cmd`. Interactive boxes only — headless boxes reject this, see below. |
+| `runbox shell` | Enter an interactive shell (`[box].shell`) in the box. Interactive boxes only. |
+| `runbox setup` | Run `[setup]` (provisioning files + commands/script) against the box account. |
+| `runbox destroy` | Revoke ACL, delete the box account, unload the PF anchor. Stops any running headless service first. |
+| `runbox start` | Headless boxes only — register and load a launchd service running `[run].cmd`. |
+| `runbox stop` | Stop a running headless box's launchd service. |
+| `runbox status` | Show whether a headless box's service is currently running. |
+| `runbox logs [--follow] [--lines N]` | Show a headless box's stdout log. |
+| `runbox doctor` | Detect orphaned box accounts from interrupted builds. |
+| `runbox snapshot` / `restore` | Not yet implemented. |
+| `runbox ps` | Not yet implemented. |
 
 ### Command quoting — this matters
 
@@ -86,10 +89,6 @@ lifecycle = "persistent"   # persistent | stateless | ephemeral
 interactive = true          # false = headless — see below
 shell = "/bin/zsh"          # what `runbox shell` execs
 
-[execution]
-mode = "enforce"
-default = "deny"
-
 [network]
 mode = "deny"                # deny | allow — each accepts only its own list
 allowlist = ["registry.npmjs.org:443"]
@@ -101,6 +100,8 @@ timeout = "30s"
 set = { NODE_ENV = "development" }
 pass_through = []             # host env vars carried in by name — a real
                                # hole by design, not masked or filtered
+path_extra = []                # appends to PATH, never replaces it — see
+                                # "Toolchain access" below
 
 [permissions]
 read = []                     # extra host paths, absolute, beyond the project dir
@@ -156,9 +157,42 @@ runbox logs --follow
 runbox stop
 ```
 
-`runbox exec` still works on a headless box directly — useful for testing
-`[run].cmd` in the foreground before backgrounding it with `start`. It's
-just not how the box runs as a service.
+`runbox exec` and `runbox shell` are rejected outright on a headless box —
+no foreground interaction, by definition. stdout/stderr go to
+`.runbox/logs/`, read via `runbox logs`. There's no way to attach a
+terminal to a headless box; that's what makes it headless.
+
+**Unverified on real hardware** — the plist shape and `launchctl`
+invocation follow documented conventions, not yet run, unlike the rest of
+this project's security-relevant paths.
+
+## Toolchain access
+
+rustup, nvm, pyenv all install per-user by convention, into the host
+account's home. A box account has no access to that by default — no ACL
+grant, no Seatbelt allow, and `runbox-helper` hardcodes a minimal `PATH`.
+A fresh box has no `cargo`, no `node`, nothing, until one of:
+
+**Recommended: install the toolchain inside the box, via `[setup]`.**
+Runs as the box account, lands in the box's own home — fully
+self-contained, no bridge into host territory. Slower first build, disk
+duplicated per box, nothing shared across boxes — but it's also exactly
+the kind of state `.box` archives are meant to capture, so the cost is
+paid once per box, not once per run.
+
+**Escape hatch: bridge to the host's existing install.** Pair a
+`[permissions].read` grant with `[env].path_extra` on the same directory:
+
+```toml
+[permissions]
+read = ["/Users/dominion/.cargo", "/Users/dominion/.rustup"]
+
+[env]
+path_extra = ["/Users/dominion/.cargo/bin"]
+```
+
+`path_extra` only appends to `PATH` — `[env].set` rejects `PATH` outright,
+specifically so a config can't silently shadow trusted binaries.
 
 ## Hooks
 
