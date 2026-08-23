@@ -30,7 +30,7 @@ make install-helper
 | `runbox init [--name] [--headless --run-cmd <cmd>]` | Create an initial `box.toml` in the current directory. |
 | `runbox spec show/edit/path/validate` | View, edit, locate, or validate the current project's `box.toml`. |
 | `runbox config show/edit/path` | View, edit, or locate Runbox's own config (`~/.config/runbox/config.toml`). |
-| `runbox build` | Provision the box account, compile the Seatbelt profile, load the PF anchor. |
+| `runbox build` | Provision the box account, compile the Seatbelt profile, load the PF anchor, write box.lock. `exec`/`shell`/headless start all require box.lock to exist. |
 | `runbox exec [cmd...]` | Run a command in the box. No args falls back to `[run].cmd`. Interactive boxes only — headless boxes reject this, see below. |
 | `runbox shell` | Enter an interactive shell (`[box].shell`) in the box. Interactive boxes only. |
 | `runbox setup` | Run `[setup]` (provisioning files + commands/script) against the box account. |
