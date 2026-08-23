@@ -1,6 +1,6 @@
 //! box.toml schema.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 /// silently assumed current.
 pub const CURRENT_BOX_SPEC_VERSION: u32 = 1;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BoxToml {
     pub schema_version: u32,
     #[serde(rename = "box")]
@@ -33,7 +33,7 @@ pub struct BoxToml {
     pub audit: AuditSection,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BoxSection {
     pub name: String,
     #[serde(default)]
@@ -51,7 +51,7 @@ fn default_shell() -> String {
     "/bin/zsh".to_string()
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Lifecycle {
     #[default]
@@ -67,7 +67,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct NetworkSection {
     #[serde(default = "default_deny")]
     pub mode: String,
@@ -119,7 +119,7 @@ impl NetworkSection {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct EnvSection {
     #[serde(default)]
     pub set: HashMap<String, String>,
@@ -195,7 +195,7 @@ impl EnvSection {
 /// project directory) — Seatbelt allowing a path doesn't override DAC; the
 /// box account still needs real OS permission to open something it
 /// doesn't own. The ACL side isn't wired yet — see acl.rs.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct PermissionsSection {
     #[serde(default)]
     pub read: Vec<String>,
@@ -221,7 +221,7 @@ impl PermissionsSection {
 /// INSIDE the box) or an explicit argv list (exec form — no shell
 /// involved, run directly). Same convention `runbox exec`'s own trailing
 /// arguments follow — see `resolve_argv`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum CommandSpec {
     Shell(String),
@@ -258,7 +258,7 @@ pub fn resolve_argv(tokens: &[String], shell: &str) -> Vec<String> {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct RunSection {
     pub cmd: CommandSpec,
     /// cwd for `runbox exec` (no args) and `runbox shell`'s starting
@@ -273,13 +273,13 @@ pub struct RunSection {
 /// command, not sourced into the same shell session — a hook's `cd` or
 /// exported vars do not carry over to the command that follows it. Real
 /// limitation, stated here rather than left to be discovered.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct HooksSection {
     pub on_enter: Option<String>,
     pub on_exit: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct SetupSection {
     #[serde(default)]
     pub provision: Vec<ProvisionEntry>,
@@ -289,13 +289,13 @@ pub struct SetupSection {
     pub script: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ProvisionEntry {
     pub src: PathBuf,
     pub dest: PathBuf,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AuditSection {
     #[serde(default = "default_true")]
     pub record: bool,
