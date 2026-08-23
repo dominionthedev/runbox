@@ -9,8 +9,6 @@ pub struct BoxToml {
     #[serde(rename = "box")]
     pub box_: BoxSection,
     #[serde(default)]
-    pub execution: ExecutionSection,
-    #[serde(default)]
     pub network: NetworkSection,
     #[serde(default)]
     pub env: EnvSection,
@@ -53,26 +51,6 @@ pub enum Lifecycle {
     Ephemeral,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ExecutionSection {
-    #[serde(default = "default_execution_mode")]
-    pub mode: String,
-    #[serde(default = "default_deny")]
-    pub default: String,
-}
-
-impl Default for ExecutionSection {
-    fn default() -> Self {
-        Self {
-            mode: default_execution_mode(),
-            default: default_deny(),
-        }
-    }
-}
-
-fn default_execution_mode() -> String {
-    "enforce".to_string()
-}
 fn default_deny() -> String {
     "deny".to_string()
 }
@@ -138,6 +116,13 @@ pub struct EnvSection {
     pub set: HashMap<String, String>,
     #[serde(default)]
     pub pass_through: Vec<String>,
+    /// Appended to runbox-helper's baseline PATH, never replacing it —
+    /// the escape hatch for bridging to a host-installed toolchain
+    /// (rustup, nvm) via a matching [permissions].read grant on the same
+    /// directory. Kept separate from `set` specifically because `set`
+    /// hard-rejects PATH — see PROTECTED_KEYS.
+    #[serde(default)]
+    pub path_extra: Vec<String>,
 }
 
 /// Env vars runbox-helper sets deliberately for correctness — HOME/USER
