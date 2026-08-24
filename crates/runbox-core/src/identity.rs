@@ -305,7 +305,9 @@ fn read_registry() -> anyhow::Result<Vec<String>> {
         Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
             let output = Command::new("sudo").args(["cat", REGISTRY_PATH]).output()?;
             if !output.status.success() {
-                anyhow::bail!("permission denied reading {REGISTRY_PATH}, and sudo cat also failed");
+                anyhow::bail!(
+                    "permission denied reading {REGISTRY_PATH}, and sudo cat also failed"
+                );
             }
             String::from_utf8_lossy(&output.stdout).into_owned()
         }
