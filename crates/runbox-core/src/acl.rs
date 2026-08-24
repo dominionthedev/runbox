@@ -40,9 +40,14 @@ fn ace_string(account_name: &str, mode: GrantMode) -> String {
 /// Runs `chmod <flag> <ace> <path>` unprivileged first; on failure,
 /// retries the exact same operation via sudo. Narrow, per-call escalation
 /// — never a broad "run everything as root" fallback.
+///
+/// First attempt is captured, not inherited — its stderr is only shown
+/// if BOTH attempts fail. Otherwise "Operation not permitted" prints
+/// right before a "granted" success line, which reads as an unhandled
+/// error even though the fallback recovered it cleanly.
 fn chmod_with_fallback(flag: &str, ace: &str, path_str: &str) -> anyhow::Result<()> {
-    let status = Command::new("chmod").args([flag, ace, path_str]).status()?;
-    if status.success() {
+    let first = Command::new("chmod").args([flag, ace, path_str]).output()?;
+    if first.status.success() {
         return Ok(());
     }
     let status = Command::new("sudo")
