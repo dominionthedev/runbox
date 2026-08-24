@@ -189,39 +189,68 @@ fn run_in_box(
     cmd.arg("--");
     cmd.args(command);
 
-    // Setpgid alone puts this process in a NEW process group that is NOT
-    // the terminal's foreground group — any interactive program (a
-    // shell, a REPL) that then tries to read from the tty gets SIGTTIN
-    // or, as observed on real hardware, "can't set tty pgrp: operation
-    // not permitted" and hangs. Fixed the same way the pre-rebuild
-    // implementation fixed it: put the child in its own process group,
-    // then explicitly hand it the terminal's foreground group via
-    // tcsetpgrp, before exec. Persists across BOTH execs in the chain
-    // (runbox -> runbox-helper -> the actual shell), since pgid/ctty
-    // state survives execve.
-    //
-    // Only when stdin is a real tty — piped/non-interactive invocations
-    // have nothing to hand over, and tcsetpgrp would just fail ENOTTY.
+    // The child ONLY sets its own new process group here — it must NOT
+    // call tcsetpgrp itself. Doing so was the bug in the previous fix:
+    // once the child leaves the foreground group via setpgid, it is by
+    // definition a background process relative to the terminal, and
+    // tcsetpgrp() from a background process sends SIGTTOU to the CALLER
+    // — default action STOP. The child would freeze silently before ever
+    // reaching exec, which is exactly the observed hang (no output, no
+    // error, just Ctrl-C required). The terminal handoff has to be done
+    // by the PARENT (below), which — at the moment it calls tcsetpgrp —
+    // is still the actual foreground group and so isn't stopped by it.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setpgid(0, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-            if libc::isatty(libc::STDIN_FILENO) != 0
-                && libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpid()) != 0
-            {
                 return Err(std::io::Error::last_os_error());
             }
             Ok(())
         });
     }
 
-    let status = cmd.status().map_err(|e| {
+    let mut child = cmd.spawn().map_err(|e| {
         anyhow::anyhow!(
             "failed to invoke {}: {e} — is runbox-helper installed? (make install-helper)",
             runbox_core::identity::HELPER_INSTALL_PATH
         )
     })?;
+    let child_pid = child.id() as libc::pid_t;
+    let is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) != 0 };
+
+    if is_tty {
+        unsafe {
+            // Ignore SIGTTOU on this (parent) process for the rest of its
+            // lifetime — runbox exits right after this call regardless,
+            // so there's nothing to restore. Without this, the reclaim
+            // tcsetpgrp call below (after the child group may no longer
+            // be the actual foreground group) could stop US instead of
+            // just succeeding, which is not what a non-interactive
+            // wrapper process wants.
+            libc::signal(libc::SIGTTOU, libc::SIG_IGN);
+            // Redundant with the child's own pre_exec setpgid — closes
+            // the fork/exec race. Whichever runs first wins; the other
+            // is a harmless no-op (or a benign EPERM if the child has
+            // already exec'd by the time this runs).
+            libc::setpgid(child_pid, child_pid);
+            // We are still the terminal's foreground group at this exact
+            // point — nothing has changed it yet — so this succeeds and
+            // hands control to the child's new group without SIGTTOU.
+            libc::tcsetpgrp(libc::STDIN_FILENO, child_pid);
+        }
+    }
+
+    let status = child
+        .wait()
+        .map_err(|e| anyhow::anyhow!("waiting on runbox-helper: {e}"))?;
+
+    if is_tty {
+        // Reclaim foreground control before exiting, so the shell that
+        // launched `runbox` gets clean control back rather than being
+        // left pointed at a now-exited process group.
+        unsafe {
+            libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpgrp());
+        }
+    }
 
     if !status.success() {
         std::process::exit(status.code().unwrap_or(1));
