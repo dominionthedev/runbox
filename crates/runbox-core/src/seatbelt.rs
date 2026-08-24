@@ -106,6 +106,16 @@ pub fn compile(inputs: &ProfileInputs) -> String {
             "(allow file-read* file-write* (literal \"{p}\"))\n"
         ));
     }
+    b.push('\n');
+
+    // TTY_DEVICE is the box's actual controlling terminal (/dev/ttysNNN),
+    // resolved by runbox-helper via ttyname_r after the privilege drop —
+    // same reasoning as TMPDIR, unpredictable per session. Missing this
+    // specifically (file-ioctl, not just read/write) was confirmed on
+    // real hardware to break zsh's own internal tcsetpgrp call —
+    // /dev/tty above covers read/write, not the ioctls interactive shells
+    // and REPLs need for job control and raw terminal mode.
+    b.push_str("(allow file-ioctl file-read* file-write* (literal (param \"TTY_DEVICE\")))\n");
 
     b
 }
