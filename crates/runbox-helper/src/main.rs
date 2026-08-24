@@ -176,7 +176,27 @@ fn resolve_real_tmpdir() -> Result<String, String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
-fn apply_sandbox(profile_path: &str, real_tmpdir: &str) -> Result<(), String> {
+/// TMPDIR-style resolution but for the box's actual controlling terminal
+/// device (/dev/ttysNNN — unpredictable per session, same reasoning as
+/// TMPDIR). Missing this grant is what caused zsh's own internal
+/// tcsetpgrp/ioctl call to fail with EPERM — separate from the terminal
+/// handoff runbox itself does; zsh does its own on interactive startup
+/// regardless. No real tty (piped/non-interactive exec) resolves to
+/// /dev/null, which is already unconditionally granted — a safe no-op
+/// bind rather than leaving the profile's referenced param unbound.
+fn resolve_tty_device() -> String {
+    let mut buf = vec![0u8; 256];
+    let ret = unsafe {
+        libc::ttyname_r(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut c_char, buf.len())
+    };
+    if ret != 0 {
+        return "/dev/null".to_string();
+    }
+    let cstr = unsafe { CStr::from_ptr(buf.as_ptr() as *const c_char) };
+    cstr.to_string_lossy().into_owned()
+}
+
+fn apply_sandbox(profile_path: &str, real_tmpdir: &str, tty_device: &str) -> Result<(), String> {
     if !profile_path.starts_with(PROFILES_DIR) {
         return Err(format!(
             "refusing profile outside {PROFILES_DIR}: {profile_path}"
@@ -188,10 +208,19 @@ fn apply_sandbox(profile_path: &str, real_tmpdir: &str) -> Result<(), String> {
 
     let c_profile =
         CString::new(profile_text).map_err(|_| "profile contains interior NUL".to_string())?;
-    let key = CString::new("TMPDIR").unwrap();
-    let value =
+    let tmpdir_key = CString::new("TMPDIR").unwrap();
+    let tmpdir_val =
         CString::new(real_tmpdir).map_err(|_| "tmpdir path contains interior NUL".to_string())?;
-    let params: [*const c_char; 3] = [key.as_ptr(), value.as_ptr(), std::ptr::null()];
+    let tty_key = CString::new("TTY_DEVICE").unwrap();
+    let tty_val =
+        CString::new(tty_device).map_err(|_| "tty device path contains interior NUL".to_string())?;
+    let params: [*const c_char; 5] = [
+        tmpdir_key.as_ptr(),
+        tmpdir_val.as_ptr(),
+        tty_key.as_ptr(),
+        tty_val.as_ptr(),
+        std::ptr::null(),
+    ];
 
     let mut errorbuf: *mut c_char = std::ptr::null_mut();
     let ret = unsafe {
@@ -267,7 +296,8 @@ fn main() -> ExitCode {
         };
         env::set_var("TMPDIR", &real_tmpdir);
 
-        if let Err(e) = apply_sandbox(profile_path, &real_tmpdir) {
+        let tty_device = resolve_tty_device();
+        if let Err(e) = apply_sandbox(profile_path, &real_tmpdir, &tty_device) {
             return fail(&e);
         }
     }
