@@ -293,19 +293,24 @@ fn unregister_managed_account(account_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Root-owned 0600 by design. Tries unprivileged read first; on
+/// permission denial, retries narrowly via `sudo cat` rather than
+/// requiring the whole `runbox doctor` invocation to run as root.
 fn read_registry() -> anyhow::Result<Vec<String>> {
     if !std::path::Path::new(REGISTRY_PATH).exists() {
         return Ok(Vec::new());
     }
-    let contents = std::fs::read_to_string(REGISTRY_PATH).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            anyhow::anyhow!(
-                "permission denied reading {REGISTRY_PATH} (it's root-owned, 0600, on purpose) — try `sudo runbox doctor`"
-            )
-        } else {
-            anyhow::anyhow!("reading {REGISTRY_PATH}: {e}")
+    let contents = match std::fs::read_to_string(REGISTRY_PATH) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            let output = Command::new("sudo").args(["cat", REGISTRY_PATH]).output()?;
+            if !output.status.success() {
+                anyhow::bail!("permission denied reading {REGISTRY_PATH}, and sudo cat also failed");
+            }
+            String::from_utf8_lossy(&output.stdout).into_owned()
         }
-    })?;
+        Err(e) => anyhow::bail!("reading {REGISTRY_PATH}: {e}"),
+    };
     Ok(contents
         .lines()
         .map(|l| l.trim().to_string())
