@@ -10,11 +10,12 @@
 //! match the ACE and silently no-ops; callers must track which mode a
 //! path was granted with.
 //!
-//! Runs unprivileged, deliberately — the project directory is normally
-//! owned by the invoking host user, who can already modify its own ACL
-//! without sudo. Declaring a [permissions] path the host user doesn't own
-//! will fail here with a permission error rather than silently escalating
-//! to sudo.
+//! Tries unprivileged chmod first — the common case (project dir,
+//! host-owned). Falls back to sudo, narrowly scoped to that one chmod
+//! call, only on failure — for paths like MacPorts' root-owned
+//! /opt/local. Not a broad re-exec of the whole CLI as root: everything
+//! else in this project (identity.rs, pf.rs) already escalates per
+//! system-command, not per-process, and this matches that.
 
 use std::path::Path;
 use std::process::Command;
@@ -36,6 +37,23 @@ fn ace_string(account_name: &str, mode: GrantMode) -> String {
     }
 }
 
+/// Runs `chmod <flag> <ace> <path>` unprivileged first; on failure,
+/// retries the exact same operation via sudo. Narrow, per-call escalation
+/// — never a broad "run everything as root" fallback.
+fn chmod_with_fallback(flag: &str, ace: &str, path_str: &str) -> anyhow::Result<()> {
+    let status = Command::new("chmod").args([flag, ace, path_str]).status()?;
+    if status.success() {
+        return Ok(());
+    }
+    let status = Command::new("sudo")
+        .args(["chmod", flag, ace, path_str])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("chmod {flag} failed for {path_str}, unprivileged and via sudo");
+    }
+    Ok(())
+}
+
 pub fn grant(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<()> {
     if is_granted(path, account_name, mode)? {
         return Ok(()); // idempotent — chmod +a would otherwise duplicate the ACE
@@ -43,13 +61,7 @@ pub fn grant(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
-    let status = Command::new("chmod")
-        .args(["+a", &ace_string(account_name, mode), path_str])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("chmod +a failed for {path_str}");
-    }
-    Ok(())
+    chmod_with_fallback("+a", &ace_string(account_name, mode), path_str)
 }
 
 pub fn revoke(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<()> {
@@ -59,13 +71,7 @@ pub fn revoke(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Resul
     let path_str = path
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("non-UTF8 path"))?;
-    let status = Command::new("chmod")
-        .args(["-a", &ace_string(account_name, mode), path_str])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("chmod -a failed for {path_str}");
-    }
-    Ok(())
+    chmod_with_fallback("-a", &ace_string(account_name, mode), path_str)
 }
 
 pub fn is_granted(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<bool> {
