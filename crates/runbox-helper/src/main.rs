@@ -272,6 +272,15 @@ fn main() -> ExitCode {
         let uid = (*pw).pw_uid;
         let gid = (*pw).pw_gid;
 
+        // TERM must be captured BEFORE the clearing loop below — it's
+        // terminal-emulator capability info (how to move the cursor,
+        // clear a line), not sensitive, and safe to carry through
+        // unconditionally, unlike arbitrary [env].pass_through entries.
+        // Missing this is what caused zsh's line editor to garble every
+        // redraw: it had no terminfo data to know how to issue the
+        // escape sequences a backspace or history-recall redraw needs.
+        let term = env::var("TERM").ok();
+
         for (k, _) in env::vars() {
             env::remove_var(k);
         }
@@ -279,6 +288,9 @@ fn main() -> ExitCode {
         env::set_var("HOME", home);
         env::set_var("USER", &parsed.account_name);
         env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
+        if let Some(t) = term {
+            env::set_var("TERM", t);
+        }
 
         if libc::setgroups(1, &gid) != 0 {
             return fail("setgroups failed");
