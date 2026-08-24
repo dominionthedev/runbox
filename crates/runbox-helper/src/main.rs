@@ -187,7 +187,11 @@ fn resolve_real_tmpdir() -> Result<String, String> {
 fn resolve_tty_device() -> String {
     let mut buf = vec![0u8; 256];
     let ret = unsafe {
-        libc::ttyname_r(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut c_char, buf.len())
+        libc::ttyname_r(
+            libc::STDIN_FILENO,
+            buf.as_mut_ptr() as *mut c_char,
+            buf.len(),
+        )
     };
     if ret != 0 {
         return "/dev/null".to_string();
@@ -212,8 +216,8 @@ fn apply_sandbox(profile_path: &str, real_tmpdir: &str, tty_device: &str) -> Res
     let tmpdir_val =
         CString::new(real_tmpdir).map_err(|_| "tmpdir path contains interior NUL".to_string())?;
     let tty_key = CString::new("TTY_DEVICE").unwrap();
-    let tty_val =
-        CString::new(tty_device).map_err(|_| "tty device path contains interior NUL".to_string())?;
+    let tty_val = CString::new(tty_device)
+        .map_err(|_| "tty device path contains interior NUL".to_string())?;
     let params: [*const c_char; 5] = [
         tmpdir_key.as_ptr(),
         tmpdir_val.as_ptr(),
