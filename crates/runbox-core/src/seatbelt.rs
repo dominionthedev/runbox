@@ -64,6 +64,15 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     }
     b.push('\n');
 
+    // bsd.sb/system.sb's baseline grants sysctl-read unconditionally and
+    // sysctl-write narrowly for exactly one name (kern.grade_cputype) —
+    // same pattern followed here, not a blanket sysctl-write allow.
+    // Confirmed on real hardware: Python/psutil's CPU-count probing
+    // writes hw.logicalcpu, and denying it silently desynced bpytop's
+    // internal per-core tracking, causing an IndexError crash downstream
+    // — the sandbox denial was the root cause, not a bpytop bug.
+    b.push_str("(allow sysctl-write (sysctl-name \"hw.logicalcpu\"))\n\n");
+
     b.push_str(&format!(
         "(allow file-read* file-write* (subpath \"{}\"))\n",
         inputs.home_dir
@@ -86,7 +95,7 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     }
     b.push('\n');
 
-    b.push_str("(allow file-write* (subpath (param \"TMPDIR\")))\n\n");
+    b.push_str("(allow file-read* file-write* (subpath (param \"TMPDIR\")))\n\n");
 
     if inputs.network_allowed {
         b.push_str("(allow network-outbound)\n");
@@ -106,6 +115,14 @@ pub fn compile(inputs: &ProfileInputs) -> String {
             "(allow file-read* file-write* (literal \"{p}\"))\n"
         ));
     }
+    // /dev/tty alone (from the loop above) only ever covered read/write —
+    // confirmed on real hardware via (debug deny) log output that less
+    // and fzf both explicitly open("/dev/tty") fresh (bypassing inherited
+    // stdin entirely) and then ioctl() it directly. TTY_DEVICE below
+    // covers the inherited-fd path; this covers the "open the alias
+    // directly" path — two different ways programs reach the terminal,
+    // both needed.
+    b.push_str("(allow file-ioctl (literal \"/dev/tty\"))\n");
     b.push('\n');
 
     // TTY_DEVICE is the box's actual controlling terminal (/dev/ttysNNN),
