@@ -1,0 +1,37 @@
+schema_version = 1
+
+[box]
+name = "runbox"
+lifecycle = "persistent"
+interactive = true
+shell = "/bin/zsh"
+
+[network]
+mode = "deny"
+allowlist = [
+  "crates.io:443",
+  "static.crates.io:443",
+  "index.crates.io:443",
+  "github.com:443",
+  "raw.githubusercontent.com:443",
+]
+dns = "localhost-only"
+
+[permissions]
+read = [
+  "/Users/appleplay/.cargo",
+  "/Users/appleplay/.rustup",
+  "/usr/local/bin/",
+  "/Users/appleplay/.local/",
+  "/opt/local/",
+]
+write = []
+
+[env]
+path_extra = [
+  "/opt/local/bin",
+  "/opt/local/sbin",
+  "/Users/appleplay/.cargo/bin",
+  "/Users/appleplay/.local/bin",
+  "/usr/local/bin",
+]
