@@ -13,6 +13,30 @@ const PF_CONF: &str = "/etc/pf.conf";
 const ANCHOR_STUB: &str = "anchor \"runbox/*\"";
 const RULES_DIR: &str = "/private/var/db/runbox/pf";
 
+/// PF wants host and port as separate tokens (`to host port 443`), not
+/// glued together (`to host:443`, which pfctl tries to resolve as a
+/// single literal hostname and fails with "no IP address found"). Only
+/// treats a trailing ':NNN' as a port if it's all digits — an IPv6
+/// address without brackets would also contain colons, so this isn't a
+/// fully general parser, just enough for the host[:port] form this
+/// project's own config documents.
+fn split_host_port(entry: &str) -> (&str, Option<&str>) {
+    if let Some((host, port)) = entry.rsplit_once(':') {
+        if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) {
+            return (host, Some(port));
+        }
+    }
+    (entry, None)
+}
+
+fn rule_line(action: &str, entry: &str, account_name: &str) -> String {
+    let (host, port) = split_host_port(entry);
+    match port {
+        Some(p) => format!("{action} out proto tcp to {host} port {p} user {account_name}\n"),
+        None => format!("{action} out proto tcp to {host} user {account_name}\n"),
+    }
+}
+
 pub fn generate_rules(account_name: &str, net: &NetworkSection) -> anyhow::Result<String> {
     net.validate().map_err(|e| anyhow::anyhow!(e))?;
 
@@ -23,9 +47,7 @@ pub fn generate_rules(account_name: &str, net: &NetworkSection) -> anyhow::Resul
                 "block out proto {{tcp udp}} user {account_name}\n"
             ));
             for entry in &net.allowlist {
-                b.push_str(&format!(
-                    "pass out proto tcp to {entry} user {account_name}\n"
-                ));
+                b.push_str(&rule_line("pass", entry, account_name));
             }
             if net.dns == "localhost-only" {
                 b.push_str(&format!(
@@ -36,9 +58,7 @@ pub fn generate_rules(account_name: &str, net: &NetworkSection) -> anyhow::Resul
         "allow" => {
             b.push_str(&format!("pass out proto {{tcp udp}} user {account_name}\n"));
             for entry in &net.denylist {
-                b.push_str(&format!(
-                    "block out proto tcp to {entry} user {account_name}\n"
-                ));
+                b.push_str(&rule_line("block", entry, account_name));
             }
         }
         other => anyhow::bail!("unreachable: validated network mode was {other:?}"),
