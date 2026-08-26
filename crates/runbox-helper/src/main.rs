@@ -279,7 +279,12 @@ fn main() -> ExitCode {
         // Missing this is what caused zsh's line editor to garble every
         // redraw: it had no terminfo data to know how to issue the
         // escape sequences a backspace or history-recall redraw needs.
+        // TERM/LANG captured before the clearing loop below — locale and
+        // terminal-capability info, not sensitive, safe to carry through
+        // unconditionally. Confirmed via shelldoctor: LANG was unset
+        // entirely inside the box, same category of gap as TERM.
         let term = env::var("TERM").ok();
+        let lang = env::var("LANG").ok();
 
         for (k, _) in env::vars() {
             env::remove_var(k);
@@ -290,6 +295,9 @@ fn main() -> ExitCode {
         env::set_var("PATH", "/usr/bin:/bin:/usr/sbin:/sbin");
         if let Some(t) = term {
             env::set_var("TERM", t);
+        }
+        if let Some(l) = lang {
+            env::set_var("LANG", l);
         }
 
         if libc::setgroups(1, &gid) != 0 {
