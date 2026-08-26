@@ -186,6 +186,13 @@ fn run_in_box(
     cmd.arg(account_name);
     cmd.arg("--seatbelt-profile").arg(profile_path_str);
     cmd.args(&env_args);
+    // SHELL reflects [box].shell — what the box declares as its shell,
+    // not whatever the host happens to use. Confirmed missing entirely
+    // via shelldoctor. Set here (not inside runbox-helper like TERM/LANG)
+    // because box.toml's parsed config is only available on the CLI
+    // side; SHELL is treated as a protected key, same as HOME/USER/PATH
+    // — [env].set cannot override it, see config::PROTECTED_KEYS.
+    cmd.arg("--env").arg(format!("SHELL={}", config.box_.shell));
     cmd.arg("--");
     cmd.args(command);
 
