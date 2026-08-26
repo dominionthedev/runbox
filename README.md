@@ -196,6 +196,23 @@ path_extra = ["/Users/dominion/.cargo/bin"]
 `path_extra` only appends to `PATH` — `[env].set` rejects `PATH` outright,
 specifically so a config can't silently shadow trusted binaries.
 
+**This alone isn't enough for tools with their own home-directory
+convention.** Confirmed on real hardware: `rustup`/`cargo` discover their
+home via `$HOME`-relative defaults (or `$RUSTUP_HOME`/`$CARGO_HOME` if
+set) — not "whatever's reachable on a granted path." File access to the
+host's `~/.rustup` doesn't make `rustup` look there; it still defaults to
+a fresh, empty `~/.rustup` under the box's own home. Redirect the tool's
+own home var explicitly:
+
+```toml
+[env]
+path_extra = ["/Users/dominion/.cargo/bin"]
+set = { RUSTUP_HOME = "/Users/dominion/.rustup", CARGO_HOME = "/Users/dominion/.cargo" }
+```
+
+Same class of gap applies to anything with this convention — `nvm`
+(`$NVM_DIR`), `pyenv` (`$PYENV_ROOT`), and others.
+
 ## Hooks
 
 `on_enter`/`on_exit` run as separate `runbox-helper` invocations
