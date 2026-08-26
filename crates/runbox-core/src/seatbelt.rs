@@ -59,10 +59,46 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     // grant only specific literals under /etc, e.g. passwd, protocols) —
     // box use needs broader /etc access (resolv.conf, hosts) than Apple's
     // minimal daemon-oriented set.
-    for p in ["/bin", "/sbin", "/private/etc"] {
+    //
+    // /usr/bin, /usr/sbin: confirmed on real hardware — zsh denied
+    // file-read-data on both. process-exec is unconditionally allowed
+    // separately, so binaries under these still ran; this is specifically
+    // about listing directory CONTENTS (tab completion, `ls`), a
+    // different operation from executing something already known by
+    // name.
+    for p in ["/bin", "/sbin", "/private/etc", "/usr/bin", "/usr/sbin"] {
         b.push_str(&format!("(allow file-read* (subpath \"{p}\"))\n"));
     }
     b.push('\n');
+
+    // /private/tmp: the SYSTEM-WIDE /tmp (real path; /tmp is a symlink),
+    // distinct from TMPDIR (the per-account dir below) — confirmed on
+    // real hardware via tmux failing to create /private/tmp/tmux-<uid>,
+    // a well-known convention many tools use directly rather than the
+    // per-account temp dir. Deliberately shared/world-writable, same as
+    // it already is for every other process on the host — sticky-bit
+    // protected at the OS level, not a new isolation boundary; the box
+    // gets the same /tmp access anything else on the machine already has.
+    b.push_str("(allow file-read* file-write* (subpath \"/private/tmp\"))\n");
+
+    // /dev/fd: synthetic directory exposing a process's OWN open file
+    // descriptors as pseudo-files (process substitution, stdin/stdout
+    // introspection). Confirmed denied for Python on real hardware.
+    // Exposing a process's own fds to itself isn't a new access grant in
+    // any meaningful sense.
+    b.push_str("(allow file-read* (subpath \"/dev/fd\"))\n");
+
+    // /private/var/run/utmpx: world-readable session-tracking file (who's
+    // logged in on which tty) that plenty of shell/prompt tooling reads.
+    // Confirmed denied for zsh on real hardware.
+    b.push_str("(allow file-read* (literal \"/private/var/run/utmpx\"))\n\n");
+
+    // user-preference-read for the generic, not-app-specific preference
+    // domain — confirmed denied for diskutil and Python on real hardware.
+    // Narrow: only this one domain, not a blanket preference-read allow.
+    b.push_str(
+        "(allow user-preference-read (preference-domain \"kCFPreferencesAnyApplication\"))\n\n",
+    );
 
     // bsd.sb/system.sb's baseline grants sysctl-read unconditionally and
     // sysctl-write narrowly for exactly one name (kern.grade_cputype) —
@@ -115,6 +151,12 @@ pub fn compile(inputs: &ProfileInputs) -> String {
             "(allow file-read* file-write* (literal \"{p}\"))\n"
         ));
     }
+    // Literal, not subpath — confirmed zsh denied file-read-data on the
+    // bare /dev directory (listing), but subpath would recursively grant
+    // read access to raw device data under /dev (disk devices etc.),
+    // which is a very different and much bigger grant than "can list
+    // what's in this directory."
+    b.push_str("(allow file-read-data (literal \"/dev\"))\n");
     // /dev/tty alone (from the loop above) only ever covered read/write —
     // confirmed on real hardware via (debug deny) log output that less
     // and fzf both explicitly open("/dev/tty") fresh (bypassing inherited
