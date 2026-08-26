@@ -139,7 +139,7 @@ pub struct EnvSection {
 /// is set to a known-safe minimal value. [env].set is applied AFTER these
 /// in runbox-helper, so an unvalidated override would silently defeat the
 /// exact invariant a real macOS account exists to provide.
-const PROTECTED_KEYS: &[&str] = &["HOME", "USER", "PATH"];
+const PROTECTED_KEYS: &[&str] = &["HOME", "USER", "PATH", "SHELL"];
 
 /// Substring match, case-insensitive, against [env].pass_through names —
 /// a soft signal, not a block. pass_through is a deliberate hole by
@@ -158,13 +158,16 @@ const SECRET_LIKE_PATTERNS: &[&str] = &[
 ];
 
 impl EnvSection {
-    /// Hard failure — HOME/USER/PATH cannot be overridden via [env].set.
+    /// Hard failure — HOME/USER/PATH/SHELL cannot be overridden via
+    /// [env].set: HOME/USER/PATH are set deliberately by runbox-helper
+    /// for account-identity correctness, SHELL is set by the CLI from
+    /// [box].shell. Overriding any of them here would defeat that.
     pub fn validate(&self) -> Result<(), String> {
         for protected in PROTECTED_KEYS {
             if self.set.contains_key(*protected) {
                 return Err(format!(
-                    "[env] set cannot override {protected:?} — runbox-helper sets it deliberately \
-                     for account-identity correctness; overriding it here would defeat that"
+                    "[env] set cannot override {protected:?} — it is set deliberately elsewhere, \
+                     see EnvSection::validate docs"
                 ));
             }
         }
