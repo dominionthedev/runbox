@@ -40,7 +40,7 @@ pub struct ProvisionedAccount {
     pub home: PathBuf,
 }
 
-pub fn provision(box_name: &str) -> anyhow::Result<ProvisionedAccount> {
+pub fn provision(box_name: &str, shell: &str) -> anyhow::Result<ProvisionedAccount> {
     let account_name = account_name_for_box(box_name);
     let group_name = account_name.clone();
 
@@ -57,7 +57,7 @@ pub fn provision(box_name: &str) -> anyhow::Result<ProvisionedAccount> {
     create_group(&group_name, gid)?;
     create_user(&account_name, &group_name, uid, gid, &home, box_name)?;
     create_home_dir(&home, uid, gid)?;
-    write_default_zshrc(&home, uid, gid, box_name)?;
+    write_default_rc(&home, uid, gid, box_name, shell)?;
     register_managed_account(&account_name)?;
 
     Ok(ProvisionedAccount {
@@ -225,22 +225,35 @@ fn create_home_dir(home: &std::path::Path, uid: u32, gid: u32) -> anyhow::Result
 }
 
 /// Idempotent prompt injection ported from the pre-rebuild implementation
-/// — strip-then-prepend via precmd_functions, so it survives repeated
-/// sourcing rather than accumulating duplicate prefixes. The box's own
-/// .zshrc; edit it freely, it's not regenerated after provisioning.
-fn write_default_zshrc(
+/// — strip-then-prepend, so it survives repeated sourcing rather than
+/// accumulating duplicate prefixes. The box's own rc file; edit it
+/// freely, it's not regenerated after provisioning.
+///
+/// [box].shell was previously ignored entirely here — this always wrote
+/// .zshrc regardless of what shell was actually configured, so setting
+/// shell = "/bin/bash" got a working shell with zero customization
+/// (bash reads .bashrc, never touches .zshrc). Dispatches on the shell's
+/// basename now. Unrecognized shells get no rc file at all, on purpose —
+/// writing syntax for a shell we haven't actually verified is worse than
+/// silently doing nothing; a plain, uncustomized shell is at least
+/// correct.
+fn write_default_rc(
     home: &std::path::Path,
     uid: u32,
     gid: u32,
     box_name: &str,
+    shell: &str,
 ) -> anyhow::Result<()> {
-    let path = home.join(".zshrc");
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("non-UTF8 zshrc path"))?;
+    let shell_name = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
 
-    let content = format!(
-        r#"# Written by runbox at provision time. Yours to customize —
+    let (rc_filename, content) = match shell_name {
+        "zsh" => (
+            ".zshrc",
+            format!(
+                r#"# Written by runbox at provision time. Yours to customize —
 # not regenerated after this.
 export RUNBOX_BOX_NAME="{box_name}"
 __RUNBOX_PREFIX='[runbox:{box_name}] '
@@ -253,12 +266,54 @@ if (( ! ${{precmd_functions[(Ie)__runbox_prompt]:-0}} )); then
     precmd_functions+=(__runbox_prompt)
 fi
 "#
-    );
+            ),
+        ),
+        "bash" => (
+            // Interactive non-login shell (which is what `runbox shell`
+            // execs) reads .bashrc, not .bash_profile/.profile.
+            // macOS ships bash 3.2 (GPLv3, never upgraded) — this stays
+            // 3.2-compatible on purpose: PROMPT_COMMAND as a plain
+            // string, `case` instead of anything newer.
+            ".bashrc",
+            format!(
+                r#"# Written by runbox at provision time. Yours to customize —
+# not regenerated after this.
+export RUNBOX_BOX_NAME="{box_name}"
+__RUNBOX_PREFIX='[runbox:{box_name}] '
+
+__runbox_prompt() {{
+    case "$PS1" in
+        "$__RUNBOX_PREFIX"*) ;;
+        *) PS1="${{__RUNBOX_PREFIX}}${{PS1}}" ;;
+    esac
+}}
+
+case "$PROMPT_COMMAND" in
+    *__runbox_prompt*) ;;
+    "") PROMPT_COMMAND="__runbox_prompt" ;;
+    *) PROMPT_COMMAND="__runbox_prompt; $PROMPT_COMMAND" ;;
+esac
+"#
+            ),
+        ),
+        other => {
+            println!(
+                "note: no rc/prompt customization for shell {other:?} yet (only zsh, bash) — \
+                 shell will work, just without the [runbox:{box_name}] prompt prefix"
+            );
+            return Ok(());
+        }
+    };
+
+    let path = home.join(rc_filename);
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 rc path"))?;
 
     run_sudo(&[
         "sh",
         "-c",
-        &format!("cat > {path_str} << 'ZSHEOF'\n{content}ZSHEOF"),
+        &format!("cat > {path_str} << 'RCEOF'\n{content}RCEOF"),
     ])?;
     run_sudo(&["chown", &format!("{uid}:{gid}"), path_str])?;
     Ok(())
