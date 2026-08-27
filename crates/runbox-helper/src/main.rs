@@ -333,9 +333,16 @@ fn main() -> ExitCode {
     // Additive only — appends to the baseline set above, never replaces
     // it. The one sanctioned way to extend PATH; --env rejects PATH
     // outright (see parse_args).
+    //
+    // Prepended, not appended — explicitly-added custom paths taking
+    // priority over the system baseline is normal shell PATH convention
+    // (the entire point of adding a custom bin dir is usually to use
+    // YOUR version of a tool over whatever the system ships). Appending
+    // meant the system copy always won on any name collision, silently
+    // defeating the reason path_extra was declared in the first place.
     if !parsed.path_extra.is_empty() {
         let current = env::var("PATH").unwrap_or_default();
-        let extended = format!("{current}:{}", parsed.path_extra.join(":"));
+        let extended = format!("{}:{current}", parsed.path_extra.join(":"));
         env::set_var("PATH", extended);
     }
 
