@@ -413,7 +413,7 @@ fn main() -> anyhow::Result<()> {
             let config = load_config()?;
             let box_name = &config.box_.name;
 
-            let account = runbox_core::identity::provision(box_name)?;
+            let account = runbox_core::identity::provision(box_name, &config.box_.shell)?;
             println!(
                 "provisioned {} (uid {}, gid {}, home {})",
                 account.account_name,
@@ -576,6 +576,9 @@ fn main() -> anyhow::Result<()> {
 
             runbox_core::pf::unload_anchor(box_name)?;
             println!("unloaded pf anchor: runbox/{box_name}");
+
+            runbox_core::seatbelt::remove_profile(box_name)?;
+            println!("removed seatbelt profile");
 
             runbox_core::identity::deprovision(&account_name)?;
             println!("deprovisioned {account_name}");
