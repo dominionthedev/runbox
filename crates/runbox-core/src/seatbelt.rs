@@ -222,3 +222,24 @@ pub fn write_profile(box_name: &str, inputs: &ProfileInputs) -> anyhow::Result<s
 
     Ok(path)
 }
+
+/// Removes the compiled profile — root-owned, so this needs sudo, same
+/// as write_profile. Missing entry is not an error; there's nothing to
+/// clean up if it was never written.
+pub fn remove_profile(box_name: &str) -> anyhow::Result<()> {
+    use std::process::Command;
+
+    let path = profile_path_for(box_name);
+    if !path.exists() {
+        return Ok(());
+    }
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("non-UTF8 profile path"))?;
+
+    let status = Command::new("sudo").args(["rm", "-f", path_str]).status()?;
+    if !status.success() {
+        anyhow::bail!("failed to remove {path_str}");
+    }
+    Ok(())
+}
