@@ -435,9 +435,15 @@ fn main() -> anyhow::Result<()> {
                 extra_write: &config.permissions.write,
                 network_allowed: config.network.mode == "allow"
                     || !config.network.allowlist.is_empty(),
+                mode: runbox_core::seatbelt::ExecutionMode::parse(&config.execution.mode)
+                    .map_err(|e| anyhow::anyhow!(e))?,
             };
             let profile_path = runbox_core::seatbelt::write_profile(box_name, &inputs)?;
-            println!("compiled seatbelt profile: {}", profile_path.display());
+            println!(
+                "compiled seatbelt profile ({}): {}",
+                config.execution.mode,
+                profile_path.display()
+            );
 
             runbox_core::pf::load_anchor(box_name, &account.account_name, &config.network)?;
             println!("loaded pf anchor: runbox/{box_name}");
