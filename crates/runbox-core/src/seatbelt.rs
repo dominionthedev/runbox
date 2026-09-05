@@ -7,6 +7,44 @@
 //! these files as private interface subject to change without notice;
 //! importing tracks whatever's actually on the machine at run time instead
 //! of embedding a snapshot that can drift from it.
+//!
+//! [execution] mode controls file-category tightness only. Every real
+//! bug found during real-hardware testing was file-category (/usr/bin
+//! listing, /dev/fd, tmux's socket dir, TTY ioctls) — none were
+//! mach-lookup, sysctl, or preference-category. That's not a coincidence:
+//! DAC (the dedicated account) is already the real boundary protecting
+//! secrets, independent of how tight Seatbelt's file grants are — a box
+//! can't read ~/.ssh/id_rsa because it doesn't own it, regardless of this
+//! setting. So the file axis is the one worth making adjustable; the
+//! mach-lookup deny list, the narrow sysctl-write/user-preference-read
+//! grants, and (deny default) as the GLOBAL fallback for every other
+//! operation category stay identical in both modes — those have been
+//! doing real protective work and this setting doesn't touch them.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionMode {
+    /// File operations (file-read*, file-write*, file-ioctl) allowed
+    /// unconditionally — DAC is the real boundary there, not enumerated
+    /// Seatbelt grants. process-exec stays unconditional too. Default.
+    Normal,
+    /// Today's original behavior: narrow, enumerated file grants per
+    /// path. process-exec is ALSO restricted here to the same granted
+    /// subpaths — closing the "any world-executable binary can run"
+    /// finding from earlier, deliberately EXCLUDING TMPDIR/tmp from the
+    /// exec-allowed set (download-to-tmp-then-execute is a real hardening
+    /// target, not an oversight).
+    Strict,
+}
+
+impl ExecutionMode {
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "normal" => Ok(Self::Normal),
+            "strict" => Ok(Self::Strict),
+            other => Err(format!("[execution] mode must be \"normal\" or \"strict\", got {other:?}")),
+        }
+    }
+}
 
 pub const MACH_LOOKUP_DENY: &[&str] = &[
     "com.apple.securityd",
@@ -25,77 +63,60 @@ pub const MACH_LOOKUP_DENY: &[&str] = &[
 
 pub struct ProfileInputs<'a> {
     pub project_dir: &'a str,
-    /// The box account's own home — must be granted explicitly. Not
-    /// automatic; missing this blocks .zshrc, shell history, any dotfile.
-    /// Found on real hardware: `.zsh_history` locking failed with EPERM
-    /// because nothing granted this at all, not a locking-specific issue.
+    /// The box account's own home — must be granted explicitly in strict
+    /// mode. Not automatic; missing this blocks .zshrc, shell history,
+    /// any dotfile. Found on real hardware: .zsh_history locking failed
+    /// with EPERM because nothing granted this at all, not a
+    /// locking-specific issue.
     pub home_dir: &'a str,
     pub extra_read: &'a [String],
     pub extra_write: &'a [String],
     pub network_allowed: bool,
+    pub mode: ExecutionMode,
+}
+
+/// Strict mode's exec-allowed paths — deliberately NOT including
+/// TMPDIR/tmp. Everything here also gets file-read* for the same reason
+/// both are needed together: Seatbelt allowing exec doesn't help if the
+/// file itself can't be opened to be exec'd.
+fn strict_exec_and_read_paths<'a>(inputs: &ProfileInputs<'a>) -> Vec<&'a str> {
+    let mut paths = vec![
+        inputs.project_dir,
+        inputs.home_dir,
+        "/bin",
+        "/sbin",
+        "/usr/bin",
+        "/usr/sbin",
+    ];
+    paths.extend(inputs.extra_read.iter().map(String::as_str));
+    paths.extend(inputs.extra_write.iter().map(String::as_str));
+    paths
 }
 
 pub fn compile(inputs: &ProfileInputs) -> String {
     let mut b = String::new();
     b.push_str("(version 1)\n(deny default)\n(debug deny)\n(import \"/System/Library/Sandbox/Profiles/bsd.sb\")\n\n");
 
-    for rule in [
-        "(allow process-exec)",
-        "(allow process-fork)",
-        "(allow signal)",
-    ] {
-        b.push_str(rule);
-        b.push('\n');
+    b.push_str("(allow process-fork)\n(allow signal)\n");
+    match inputs.mode {
+        ExecutionMode::Normal => b.push_str("(allow process-exec)\n"),
+        ExecutionMode::Strict => {
+            for p in strict_exec_and_read_paths(inputs) {
+                b.push_str(&format!("(allow process-exec (subpath \"{p}\"))\n"));
+            }
+        }
     }
     b.push('\n');
 
+    // Shared in both modes — mach-lookup, sysctl, preference-read have
+    // never been the source of a real gap; this setting doesn't touch
+    // them.
     b.push_str("(allow mach-lookup)\n");
     for svc in MACH_LOOKUP_DENY {
         b.push_str(&format!("(deny mach-lookup (global-name \"{svc}\"))\n"));
     }
     b.push('\n');
 
-    // /bin, /sbin, /private/etc: not covered by bsd.sb/system.sb (which
-    // grant only specific literals under /etc, e.g. passwd, protocols) —
-    // box use needs broader /etc access (resolv.conf, hosts) than Apple's
-    // minimal daemon-oriented set.
-    //
-    // /usr/bin, /usr/sbin: confirmed on real hardware — zsh denied
-    // file-read-data on both. process-exec is unconditionally allowed
-    // separately, so binaries under these still ran; this is specifically
-    // about listing directory CONTENTS (tab completion, `ls`), a
-    // different operation from executing something already known by
-    // name.
-    for p in ["/bin", "/sbin", "/private/etc", "/usr/bin", "/usr/sbin"] {
-        b.push_str(&format!("(allow file-read* (subpath \"{p}\"))\n"));
-    }
-    b.push('\n');
-
-    // /private/tmp: the SYSTEM-WIDE /tmp (real path; /tmp is a symlink),
-    // distinct from TMPDIR (the per-account dir below) — confirmed on
-    // real hardware via tmux failing to create /private/tmp/tmux-<uid>,
-    // a well-known convention many tools use directly rather than the
-    // per-account temp dir. Deliberately shared/world-writable, same as
-    // it already is for every other process on the host — sticky-bit
-    // protected at the OS level, not a new isolation boundary; the box
-    // gets the same /tmp access anything else on the machine already has.
-    b.push_str("(allow file-read* file-write* (subpath \"/private/tmp\"))\n");
-
-    // /dev/fd: synthetic directory exposing a process's OWN open file
-    // descriptors as pseudo-files (process substitution, stdin/stdout
-    // introspection). Confirmed denied for Python on real hardware.
-    // Exposing a process's own fds to itself isn't a new access grant in
-    // any meaningful sense.
-    b.push_str("(allow file-read* (subpath \"/dev/fd\"))\n");
-
-    // /private/var/run/utmpx: world-readable session-tracking file (who's
-    // logged in on which tty) that plenty of shell/prompt tooling reads.
-    // Confirmed denied for zsh on real hardware.
-    b.push_str("(allow file-read* (literal \"/private/var/run/utmpx\"))\n\n");
-
-    // user-preference-read for the generic, not-app-specific preference
-    // domain — confirmed denied for diskutil and Python on real hardware.
-    // Narrow: only this one domain, not a blanket preference-read allow.
     b.push_str(
         "(allow user-preference-read (preference-domain \"kCFPreferencesAnyApplication\"))\n\n",
     );
@@ -105,33 +126,8 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     // same pattern followed here, not a blanket sysctl-write allow.
     // Confirmed on real hardware: Python/psutil's CPU-count probing
     // writes hw.logicalcpu, and denying it silently desynced bpytop's
-    // internal per-core tracking, causing an IndexError crash downstream
-    // — the sandbox denial was the root cause, not a bpytop bug.
+    // internal per-core tracking, causing an IndexError crash downstream.
     b.push_str("(allow sysctl-write (sysctl-name \"hw.logicalcpu\"))\n\n");
-
-    b.push_str(&format!(
-        "(allow file-read* file-write* (subpath \"{}\"))\n",
-        inputs.home_dir
-    ));
-    b.push_str(&format!(
-        "(allow file-read* file-write* (subpath \"{}\"))\n",
-        inputs.project_dir
-    ));
-    b.push_str(&format!(
-        "(allow file-read-metadata (path-ancestors \"{}\"))\n",
-        inputs.project_dir
-    ));
-    for p in inputs.extra_read {
-        b.push_str(&format!("(allow file-read* (subpath \"{p}\"))\n"));
-    }
-    for p in inputs.extra_write {
-        b.push_str(&format!(
-            "(allow file-read* file-write* (subpath \"{p}\"))\n"
-        ));
-    }
-    b.push('\n');
-
-    b.push_str("(allow file-read* file-write* (subpath (param \"TMPDIR\")))\n\n");
 
     if inputs.network_allowed {
         b.push_str("(allow network-outbound)\n");
@@ -140,41 +136,72 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     }
     b.push('\n');
 
-    for p in [
-        "/dev/null",
-        "/dev/zero",
-        "/dev/random",
-        "/dev/urandom",
-        "/dev/tty",
-    ] {
-        b.push_str(&format!(
-            "(allow file-read* file-write* (literal \"{p}\"))\n"
-        ));
-    }
-    // Literal, not subpath — confirmed zsh denied file-read-data on the
-    // bare /dev directory (listing), but subpath would recursively grant
-    // read access to raw device data under /dev (disk devices etc.),
-    // which is a very different and much bigger grant than "can list
-    // what's in this directory."
-    b.push_str("(allow file-read-data (literal \"/dev\"))\n");
-    // /dev/tty alone (from the loop above) only ever covered read/write —
-    // confirmed on real hardware via (debug deny) log output that less
-    // and fzf both explicitly open("/dev/tty") fresh (bypassing inherited
-    // stdin entirely) and then ioctl() it directly. TTY_DEVICE below
-    // covers the inherited-fd path; this covers the "open the alias
-    // directly" path — two different ways programs reach the terminal,
-    // both needed.
-    b.push_str("(allow file-ioctl (literal \"/dev/tty\"))\n");
-    b.push('\n');
+    match inputs.mode {
+        ExecutionMode::Normal => {
+            // Every real bug found this session was file-category — DAC
+            // is the actual boundary for the thing that matters
+            // (secrets), so enumerating every path here has been pure
+            // friction. mach-lookup/sysctl/preference above are
+            // unaffected by this.
+            b.push_str("(allow file-read* file-write* file-ioctl)\n");
+        }
+        ExecutionMode::Strict => {
+            for p in strict_exec_and_read_paths(inputs) {
+                b.push_str(&format!("(allow file-read* (subpath \"{p}\"))\n"));
+            }
+            // home_dir and project_dir additionally need write, not just
+            // read — extra_write already covered above for read, add
+            // write here too.
+            b.push_str(&format!(
+                "(allow file-write* (subpath \"{}\"))\n",
+                inputs.home_dir
+            ));
+            b.push_str(&format!(
+                "(allow file-write* (subpath \"{}\"))\n",
+                inputs.project_dir
+            ));
+            b.push_str(&format!(
+                "(allow file-read-metadata (path-ancestors \"{}\"))\n",
+                inputs.project_dir
+            ));
+            for p in inputs.extra_write {
+                b.push_str(&format!("(allow file-write* (subpath \"{p}\"))\n"));
+            }
+            b.push('\n');
 
-    // TTY_DEVICE is the box's actual controlling terminal (/dev/ttysNNN),
-    // resolved by runbox-helper via ttyname_r after the privilege drop —
-    // same reasoning as TMPDIR, unpredictable per session. Missing this
-    // specifically (file-ioctl, not just read/write) was confirmed on
-    // real hardware to break zsh's own internal tcsetpgrp call —
-    // /dev/tty above covers read/write, not the ioctls interactive shells
-    // and REPLs need for job control and raw terminal mode.
-    b.push_str("(allow file-ioctl file-read* file-write* (literal (param \"TTY_DEVICE\")))\n");
+            // /private/etc: needs broader access (resolv.conf, hosts)
+            // than bsd.sb/system.sb's minimal daemon-oriented literals.
+            b.push_str("(allow file-read* (subpath \"/private/etc\"))\n\n");
+
+            // /private/tmp: system-wide /tmp (real path), distinct from
+            // TMPDIR below — tmux's socket dir convention. Deliberately
+            // shared/world-writable, same as every other process on the
+            // host already has, sticky-bit protected at the OS level.
+            b.push_str("(allow file-read* file-write* (subpath \"/private/tmp\"))\n");
+            b.push_str("(allow file-read* (subpath \"/dev/fd\"))\n");
+            b.push_str("(allow file-read* (literal \"/private/var/run/utmpx\"))\n\n");
+
+            b.push_str("(allow file-read* file-write* (subpath (param \"TMPDIR\")))\n\n");
+
+            for p in [
+                "/dev/null",
+                "/dev/zero",
+                "/dev/random",
+                "/dev/urandom",
+                "/dev/tty",
+            ] {
+                b.push_str(&format!(
+                    "(allow file-read* file-write* (literal \"{p}\"))\n"
+                ));
+            }
+            b.push_str("(allow file-read-data (literal \"/dev\"))\n");
+            b.push_str("(allow file-ioctl (literal \"/dev/tty\"))\n\n");
+
+            b.push_str(
+                "(allow file-ioctl file-read* file-write* (literal (param \"TTY_DEVICE\")))\n",
+            );
+        }
+    }
 
     b
 }
