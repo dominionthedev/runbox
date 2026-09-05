@@ -91,6 +91,9 @@ lifecycle = "persistent"   # persistent | stateless | ephemeral
 interactive = true          # false = headless — see below
 shell = "/bin/zsh"          # what `runbox shell` execs
 
+[execution]
+mode = "normal"              # normal | strict — see "Execution tightness" below
+
 [network]
 mode = "deny"                # deny | allow — each accepts only its own list
 allowlist = ["registry.npmjs.org:443"]
@@ -168,6 +171,28 @@ terminal to a headless box; that's what makes it headless.
 invocation follow documented conventions, not yet run, unlike the rest of
 this project's security-relevant paths.
 
+## Execution tightness
+
+`[execution] mode` controls file-category Seatbelt strictness only —
+`mach-lookup`'s deny list, the narrow `sysctl-write`/`user-preference-read`
+grants, and `(deny default)` as the global fallback for every other
+operation category are identical in both modes.
+
+- **`normal`** (default) — `file-read*`/`file-write*`/`file-ioctl`
+  allowed unconditionally, `process-exec` unrestricted. Every real bug
+  found during real-hardware testing was file-category (directory
+  listing, `/dev/fd`, TTY ioctls, tmux's socket dir) — none were
+  mach-lookup, sysctl, or preference-category. DAC (the dedicated
+  account) is already the actual boundary protecting secrets, regardless
+  of how tight the file grants are — a box can't read `~/.ssh/id_rsa`
+  because it doesn't own it, whether or not Seatbelt's file rules are
+  broad.
+- **`strict`** — narrow, enumerated grants per path (project dir, home
+  dir, `[permissions]` paths, system essentials). `process-exec` is
+  *also* restricted to those same paths here, deliberately excluding
+  `TMPDIR`/`/tmp` — download-to-temp-then-execute is a real pattern
+  worth blocking, not an oversight.
+
 ## Toolchain access
 
 rustup, nvm, pyenv all install per-user by convention, into the host
@@ -224,13 +249,17 @@ global-then-box, `on_exit` runs box-then-global.
 ## Architecture
 
 - **Identity** — dedicated macOS user per box (`_runbox_<hash>`). File
-  ownership is the DAC boundary.
-- **Seatbelt** — static, default-deny profile compiled per box, built on
-  Apple's own `bsd.sb`/`system.sb` baseline. Explicit mach-lookup deny
-  list beyond that baseline. `dslocal` stays unreachable by omission.
-  `TMPDIR` is resolved and canonicalized by `runbox-helper` AFTER the
-  privilege drop — verified per-account and symlink-sensitive on real
-  hardware, not assumed.
+  ownership is the DAC boundary — this holds regardless of `[execution]`
+  mode.
+- **Seatbelt** — compiled per box, built on Apple's own `bsd.sb`/
+  `system.sb` baseline. `mach-lookup` deny list, `sysctl-write`/
+  `user-preference-read` grants, and `(deny default)` as the fallback for
+  every non-file operation category are identical in both `[execution]`
+  modes — only file-category tightness (`normal` vs `strict`) differs,
+  see "Execution tightness" above. `dslocal` stays unreachable by
+  omission. `TMPDIR` is resolved and canonicalized by `runbox-helper`
+  AFTER the privilege drop — verified per-account and symlink-sensitive
+  on real hardware, not assumed.
 - **PF** — independent kernel backstop, scoped to the box's uid via PF's
   `user` keyword.
 - **Project bridge** — the project directory stays on host; the box
