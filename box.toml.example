@@ -10,6 +10,16 @@ interactive = true       # false = headless, runs under launchd
 shell = "/bin/zsh"       # what `runbox shell` execs — the account's own
 # UserShell is deliberately /usr/bin/false
 
+[execution]
+mode = "normal" # normal | strict — file-category tightness only.
+# normal: file-read/write/ioctl allowed unconditionally — DAC (the
+#   dedicated account) is the real boundary for secrets either way.
+# strict: narrow, enumerated grants per path, AND process-exec
+#   restricted to those same paths (deliberately excluding tmp/TMPDIR —
+#   download-to-tmp-then-execute is a real thing to block, not an
+#   oversight). mach-lookup/sysctl/preference-read grants are identical
+#   in both modes regardless of this setting.
+
 [network]
 mode = "deny"
 allowlist = ["registry.npmjs.org:443", "github.com:443"]
