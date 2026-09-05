@@ -18,6 +18,8 @@ pub struct BoxToml {
     #[serde(rename = "box")]
     pub box_: BoxSection,
     #[serde(default)]
+    pub execution: ExecutionSection,
+    #[serde(default)]
     pub network: NetworkSection,
     #[serde(default)]
     pub env: EnvSection,
@@ -49,6 +51,33 @@ pub struct BoxSection {
 
 fn default_shell() -> String {
     "/bin/zsh".to_string()
+}
+
+/// Controls file-category Seatbelt tightness only — mach-lookup deny
+/// list, sysctl-write/user-preference-read grants, and (deny default) as
+/// the global fallback for every other operation category are identical
+/// regardless of this setting. See seatbelt.rs module docs for why the
+/// file axis specifically is the one made adjustable.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ExecutionSection {
+    #[serde(default = "default_execution_mode")]
+    pub mode: String,
+}
+
+impl Default for ExecutionSection {
+    fn default() -> Self {
+        Self { mode: default_execution_mode() }
+    }
+}
+
+impl ExecutionSection {
+    pub fn validate(&self) -> Result<(), String> {
+        crate::seatbelt::ExecutionMode::parse(&self.mode).map(|_| ())
+    }
+}
+
+fn default_execution_mode() -> String {
+    "normal".to_string()
 }
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -327,6 +356,10 @@ pub fn parse(raw: &str) -> anyhow::Result<BoxToml> {
             CURRENT_BOX_SPEC_VERSION
         );
     }
+    parsed
+        .execution
+        .validate()
+        .map_err(|e| anyhow::anyhow!("box.toml [execution]: {e}"))?;
     parsed
         .network
         .validate()
