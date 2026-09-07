@@ -66,7 +66,9 @@ pub struct ExecutionSection {
 
 impl Default for ExecutionSection {
     fn default() -> Self {
-        Self { mode: default_execution_mode() }
+        Self {
+            mode: default_execution_mode(),
+        }
     }
 }
 
