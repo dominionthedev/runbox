@@ -3,6 +3,16 @@
 //! precision without shared-group proliferation. Inheritance must be on,
 //! or the box's writes lock the host account out of its own output.
 //!
+//! Recursive (-R), not just top-level. Confirmed on real hardware: an
+//! existing project (this repo) already had a `target/` directory full
+//! of files created by `cargo build` on the host, long before `runbox
+//! build` ever ran. file_inherit/directory_inherit only cover files
+//! created AFTER the grant — anything that already existed keeps
+//! whatever ACL it had, which was none, and the box gets EACCES on it
+//! regardless of Seatbelt mode. -R applies the ACE to everything that
+//! already exists at grant time; the inherit flags still handle
+//! anything created afterward.
+//!
 //! Uses `chmod +a`/`-a` rather than native `acl_set_file` — no unsafe
 //! FFI, and the ACE string is symmetric between grant and revoke so
 //! `chmod -a` reliably matches what `chmod +a` added — as long as the
@@ -37,24 +47,27 @@ fn ace_string(account_name: &str, mode: GrantMode) -> String {
     }
 }
 
-/// Runs `chmod <flag> <ace> <path>` unprivileged first; on failure,
+/// Runs `chmod -R <flag> <ace> <path>` unprivileged first; on failure,
 /// retries the exact same operation via sudo. Narrow, per-call escalation
-/// — never a broad "run everything as root" fallback.
+/// — never a broad "run everything as root" fallback. -R is a safe no-op
+/// on a plain file, so this doesn't need to branch on file vs directory.
 ///
 /// First attempt is captured, not inherited — its stderr is only shown
 /// if BOTH attempts fail. Otherwise "Operation not permitted" prints
 /// right before a "granted" success line, which reads as an unhandled
 /// error even though the fallback recovered it cleanly.
 fn chmod_with_fallback(flag: &str, ace: &str, path_str: &str) -> anyhow::Result<()> {
-    let first = Command::new("chmod").args([flag, ace, path_str]).output()?;
+    let first = Command::new("chmod")
+        .args(["-R", flag, ace, path_str])
+        .output()?;
     if first.status.success() {
         return Ok(());
     }
     let status = Command::new("sudo")
-        .args(["chmod", flag, ace, path_str])
+        .args(["chmod", "-R", flag, ace, path_str])
         .status()?;
     if !status.success() {
-        anyhow::bail!("chmod {flag} failed for {path_str}, unprivileged and via sudo");
+        anyhow::bail!("chmod -R {flag} failed for {path_str}, unprivileged and via sudo");
     }
     Ok(())
 }
