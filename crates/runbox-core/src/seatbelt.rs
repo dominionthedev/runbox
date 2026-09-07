@@ -41,7 +41,9 @@ impl ExecutionMode {
         match s {
             "normal" => Ok(Self::Normal),
             "strict" => Ok(Self::Strict),
-            other => Err(format!("[execution] mode must be \"normal\" or \"strict\", got {other:?}")),
+            other => Err(format!(
+                "[execution] mode must be \"normal\" or \"strict\", got {other:?}"
+            )),
         }
     }
 }
