@@ -6,6 +6,9 @@ lifecycle = "persistent"
 interactive = true
 shell = "/bin/zsh"
 
+[execution]
+mode = "normal"
+
 [network]
 mode = "deny"
 allowlist = [
@@ -25,7 +28,7 @@ read = [
   "/Users/appleplay/.local/",
   "/opt/local/",
 ]
-write = []
+write = ["/Users/appleplay/.cargo"]
 
 [env]
 path_extra = [
@@ -35,3 +38,4 @@ path_extra = [
   "/Users/appleplay/.local/bin",
   "/usr/local/bin",
 ]
+set = { RUSTUP_HOME = "/Users/appleplay/.rustup", CARGO_HOME = "/Users/appleplay/.cargo" }
