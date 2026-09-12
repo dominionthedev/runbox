@@ -36,13 +36,29 @@ pub enum GrantMode {
     ReadWrite,
 }
 
+/// macOS ACLs (via `chmod +a`) have distinct directory-only rights
+/// (`add_file`, `add_subdirectory`, `delete_child`, `search`, `list`)
+/// that generic `read`/`write`/`execute` do NOT imply — unlike plain
+/// POSIX write-on-a-directory, which does cover creating anything inside
+/// it. Confirmed on real hardware: file creation worked, directory
+/// creation (npm's node_modules, tmux's socket dir) failed with EACCES,
+/// because `add_subdirectory` specifically was never granted. Both file-
+/// and directory-rights are listed explicitly now rather than relying on
+/// the generic keywords to cover a mixed file+directory tree correctly.
 fn ace_string(account_name: &str, mode: GrantMode) -> String {
     match mode {
         GrantMode::ReadOnly => {
-            format!("{account_name} allow read,execute,file_inherit,directory_inherit")
+            format!(
+                "{account_name} allow list,search,read,readattr,readextattr,readsecurity,\
+                 execute,file_inherit,directory_inherit"
+            )
         }
         GrantMode::ReadWrite => {
-            format!("{account_name} allow read,write,execute,delete,file_inherit,directory_inherit")
+            format!(
+                "{account_name} allow list,search,add_file,add_subdirectory,delete,\
+                 delete_child,read,write,append,readattr,writeattr,readextattr,writeextattr,\
+                 readsecurity,execute,file_inherit,directory_inherit"
+            )
         }
     }
 }
@@ -92,6 +108,10 @@ pub fn revoke(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Resul
     chmod_with_fallback("-a", &ace_string(account_name, mode), path_str)
 }
 
+/// RW is a strict textual superset of RO's rights (RO has nothing RW
+/// lacks), so a positive RO substring match alone can't distinguish
+/// "this path has RO" from "this path has RW" — `add_subdirectory` only
+/// ever appears in the RW ace, giving an unambiguous signal either way.
 pub fn is_granted(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<bool> {
     let path_str = path
         .to_str()
@@ -101,11 +121,14 @@ pub fn is_granted(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::R
         anyhow::bail!("ls -le failed for {path_str} — does it exist?");
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    let marker = match mode {
-        GrantMode::ReadOnly => "read,execute",
-        GrantMode::ReadWrite => "read,write",
-    };
-    Ok(text
-        .lines()
-        .any(|line| line.contains(account_name) && line.contains(marker) && line.contains("allow")))
+    Ok(text.lines().any(|line| {
+        if !line.contains(account_name) || !line.contains("allow") {
+            return false;
+        }
+        let is_rw = line.contains("add_subdirectory");
+        match mode {
+            GrantMode::ReadWrite => is_rw,
+            GrantMode::ReadOnly => !is_rw && line.contains("readsecurity"),
+        }
+    }))
 }
