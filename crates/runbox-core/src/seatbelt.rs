@@ -131,6 +131,33 @@ pub fn compile(inputs: &ProfileInputs) -> String {
     // internal per-core tracking, causing an IndexError crash downstream.
     b.push_str("(allow sysctl-write (sysctl-name \"hw.logicalcpu\"))\n\n");
 
+    // network-bind is a SEPARATE operation category from network-outbound
+    // — confirmed missing on real hardware via Astro's dev server failing
+    // "listen EPERM" on ::1:4321. Every network fix up to this point was
+    // about connecting OUT; nothing had ever addressed binding a LOCAL
+    // listening port, which basically every dev server needs. Granted
+    // unconditionally in both modes — like sysctl-write/user-preference-
+    // read above, this isn't a file-tightness question, and PF only ever
+    // governs outbound traffic regardless, so this doesn't touch that
+    // axis either. Unqualified (no address filter) deliberately: the
+    // exact SBPL filter syntax for network-bind isn't something I've
+    // verified against real hardware the way the file-based rules were,
+    // and a filter typo would fail the WHOLE profile's compilation, which
+    // is worse than the current gap. Flagged as best-attempt, not
+    // confirmed — the address-scoping refinement (favoring loopback over
+    // 0.0.0.0) is a real follow-up once this baseline is confirmed
+    // working at all.
+    b.push_str("(allow network-bind)\n\n");
+
+    // Best-attempt, NOT confirmed via (debug deny) log evidence like the
+    // rest of this file — tmux failing to create its socket FILE (inside
+    // an already-successfully-created directory) suggests something
+    // beyond plain file-write*, possibly the socket() syscall itself for
+    // AF_UNIX domain sockets, a separate operation from the filesystem
+    // entry the bind() call also creates. Narrow (AF_UNIX only, not all
+    // socket domains) in case this guess is wrong and needs revisiting.
+    b.push_str("(allow system-socket (socket-domain AF_UNIX))\n\n");
+
     if inputs.network_allowed {
         b.push_str("(allow network-outbound)\n");
     } else {
