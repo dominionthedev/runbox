@@ -72,20 +72,50 @@ fn ace_string(account_name: &str, mode: GrantMode) -> String {
 /// if BOTH attempts fail. Otherwise "Operation not permitted" prints
 /// right before a "granted" success line, which reads as an unhandled
 /// error even though the fallback recovered it cleanly.
+/// Retries a single failing entry within a recursive -R walk, up to 3
+/// times, before giving up. Observed on real hardware: -a needs an exact
+/// permission-string match to know which ACE to remove, and macOS may
+/// re-serialize the stored permission order differently than what we
+/// specified — one mismatched file within a large recursive walk fails
+/// with "Entry not found" while the rest of the tree succeeds, and the
+/// whole command reports failure even though it mostly worked. Retrying
+/// converges in practice (confirmed manually: a second or third `runbox
+/// destroy` succeeds where the first didn't) — this automates that
+/// instead of leaving it as a manual workaround. Not a root-cause fix;
+/// the actual mismatch mechanism hasn't been confirmed, only observed.
+const MAX_CHMOD_ATTEMPTS: u32 = 3;
+
 fn chmod_with_fallback(flag: &str, ace: &str, path_str: &str) -> anyhow::Result<()> {
-    let first = Command::new("chmod")
-        .args(["-R", flag, ace, path_str])
-        .output()?;
-    if first.status.success() {
-        return Ok(());
+    let mut last_err = String::new();
+
+    for attempt in 1..=MAX_CHMOD_ATTEMPTS {
+        let first = Command::new("chmod")
+            .args(["-R", flag, ace, path_str])
+            .output()?;
+        if first.status.success() {
+            return Ok(());
+        }
+
+        let sudo_attempt = Command::new("sudo")
+            .args(["chmod", "-R", flag, ace, path_str])
+            .output()?;
+        if sudo_attempt.status.success() {
+            return Ok(());
+        }
+
+        last_err = String::from_utf8_lossy(&sudo_attempt.stderr).into_owned();
+        if attempt < MAX_CHMOD_ATTEMPTS {
+            eprintln!(
+                "chmod -R {flag} attempt {attempt}/{MAX_CHMOD_ATTEMPTS} hit a partial mismatch, retrying: {}",
+                last_err.trim()
+            );
+        }
     }
-    let status = Command::new("sudo")
-        .args(["chmod", "-R", flag, ace, path_str])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("chmod -R {flag} failed for {path_str}, unprivileged and via sudo");
-    }
-    Ok(())
+
+    anyhow::bail!(
+        "chmod -R {flag} failed for {path_str} after {MAX_CHMOD_ATTEMPTS} attempts: {}",
+        last_err.trim()
+    )
 }
 
 pub fn grant(path: &Path, account_name: &str, mode: GrantMode) -> anyhow::Result<()> {
